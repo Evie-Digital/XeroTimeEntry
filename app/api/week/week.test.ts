@@ -113,9 +113,67 @@ describe("GET /api/week", () => {
       expect(params).toEqual({
         userId: "user-2",
         dateAfterUtc: "2026-07-20",
-        dateBeforeUtc: "2026-07-26",
+        // Upper bound is widened to end-of-day so a last-day Entry with a
+        // time-of-day isn't dropped (see the inclusion regression test below).
+        dateBeforeUtc: "2026-07-26T23:59:59.999Z",
       });
     }
+  });
+
+  it("includes a last-day entry authored with a time-of-day (widened upper bound)", async () => {
+    // A Sunday (the week's last day) Entry stamped mid-afternoon in the Xero UI.
+    // With a midnight upper bound this would fall AFTER `dateBeforeUtc` and be
+    // silently excluded; the widened end-of-day bound keeps it in range (spec
+    // story 11 — see time logged from anywhere, including the Xero UI).
+    const lastDay = {
+      timeEntryId: "te-sunday",
+      taskId: "task-1",
+      userId: "user-2",
+      dateUtc: "2026-07-26T15:00:00Z", // Sunday, 15:00Z
+      duration: 45,
+      description: "Late Sunday session",
+      status: "ACTIVE",
+    };
+
+    // A Time handler that faithfully honours Xero's date filtering (the default
+    // fixture handler ignores the bounds), so this test actually exercises the
+    // widened `dateBeforeUtc`.
+    server.use(
+      http.get(
+        "https://api.xero.com/projects.xro/2.0/Projects/:projectId/Time",
+        ({ request, params }) => {
+          const url = new URL(request.url);
+          const after = url.searchParams.get("dateAfterUtc");
+          const before = url.searchParams.get("dateBeforeUtc");
+          const all =
+            params.projectId === "proj-1" ? [lastDay] : [];
+          const items = all.filter((e) => {
+            const t = Date.parse(e.dateUtc);
+            return (
+              (!after || t >= Date.parse(after)) &&
+              (!before || t <= Date.parse(before))
+            );
+          });
+          return HttpResponse.json({
+            pagination: { page: 1, pageCount: 1, pageSize: 500, itemCount: items.length },
+            items,
+          });
+        },
+      ),
+    );
+
+    const res = await weekGET(authed(weekUrl()));
+    const body = await res.json();
+
+    const found = body.find(
+      (e: { timeEntryId: string }) => e.timeEntryId === "te-sunday",
+    );
+    expect(found).toBeDefined();
+    expect(found).toMatchObject({
+      dateUtc: "2026-07-26T15:00:00Z",
+      duration: 45,
+      taskName: "Development",
+    });
   });
 
   it("never exceeds 5 concurrent per-project Time calls during the fan-out", async () => {

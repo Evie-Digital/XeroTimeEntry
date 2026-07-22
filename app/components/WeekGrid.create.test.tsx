@@ -112,6 +112,61 @@ describe("WeekGrid — create from a cell", () => {
     expect(screen.getByTestId(EMPTY_CELL)).toHaveTextContent(hours);
   });
 
+  it("shows a Saving indicator during an in-flight create, then resolves to saved", async () => {
+    // Gate the POST so the `saving` (first-attempt in-flight) state is
+    // observable before the write resolves (story 27 — visible sync status).
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let weekEntries: WeekEntry[] = [seedEntry()];
+    server.use(
+      http.get("*/api/week", () => HttpResponse.json(weekEntries)),
+      http.post("*/api/timeentries", async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        await gate; // hold the write in-flight
+        const created: WeekEntry = {
+          timeEntryId: "te-created",
+          projectId: String(body.projectId),
+          projectName: "Website Rebuild",
+          taskId: String(body.taskId),
+          taskName: "Development",
+          dateUtc: String(body.dateUtc),
+          duration: Number(body.duration),
+          description: "",
+          status: "ACTIVE",
+        };
+        weekEntries = [...weekEntries, created];
+        return HttpResponse.json(created, { status: 201 });
+      }),
+    );
+    renderWithClient(<WeekGrid from={FROM} to={TO} today={TODAY} />);
+
+    const user = userEvent.setup();
+    const cell = await screen.findByTestId(EMPTY_CELL);
+    await user.type(within(cell).getByRole("textbox"), "1.5{Enter}");
+
+    // While the POST is in flight the Cell is `saving` with a visible indicator.
+    await waitFor(() =>
+      expect(screen.getByTestId(EMPTY_CELL)).toHaveAttribute(
+        "data-state",
+        "saving",
+      ),
+    );
+    expect(
+      within(screen.getByTestId(EMPTY_CELL)).getByLabelText("Saving"),
+    ).toBeInTheDocument();
+
+    // Release the write → invalidate → refetch → the Slot re-derives as saved.
+    release();
+    await waitFor(() =>
+      expect(screen.getByTestId(EMPTY_CELL)).toHaveAttribute(
+        "data-state",
+        "saved",
+      ),
+    );
+  });
+
   it("invalid input puts the cell in error and sends nothing", async () => {
     const { posted } = setupStatefulApi();
     await typeInEmptyCell("abc");

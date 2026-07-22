@@ -8,12 +8,7 @@
 // Slice #05 implements CREATE. #06 adds PUT (full-replace) + DELETE, which
 // follow the exact same shape (see the trailing note).
 
-import {
-  RateLimited,
-  UpstreamError,
-  XeroValidation,
-  xeroFetch,
-} from "./client";
+import { throwForXeroStatus, xeroFetch } from "./client";
 import { getSession, ReauthRequired } from "./session";
 
 /** A new time entry to POST. `dateUtc` is `<localDate>T00:00:00Z` (§2). */
@@ -47,13 +42,7 @@ export async function createTimeEntry(entry: NewTimeEntry) {
     }),
   });
 
-  if (res.status === 429) {
-    throw new RateLimited(Number(res.headers.get("Retry-After") ?? 1));
-  }
-  if (res.status === 400) {
-    throw new XeroValidation(await res.json().catch(() => null));
-  }
-  if (!res.ok) throw new UpstreamError(`Xero ${res.status}`);
+  await throwForXeroStatus(res);
   return res.json();
 }
 
@@ -94,13 +83,7 @@ export async function updateTimeEntry(entry: UpdateTimeEntry): Promise<void> {
     },
   );
 
-  if (res.status === 429) {
-    throw new RateLimited(Number(res.headers.get("Retry-After") ?? 1));
-  }
-  if (res.status === 400) {
-    throw new XeroValidation(await res.json().catch(() => null));
-  }
-  if (!res.ok) throw new UpstreamError(`Xero ${res.status}`);
+  await throwForXeroStatus(res);
   // 204 No Content — nothing to return.
 }
 
@@ -121,9 +104,6 @@ export async function deleteTimeEntry(params: {
     { method: "DELETE" },
   );
 
-  if (res.status === 429) {
-    throw new RateLimited(Number(res.headers.get("Retry-After") ?? 1));
-  }
-  if (!res.ok) throw new UpstreamError(`Xero ${res.status}`);
+  await throwForXeroStatus(res);
   // 204 No Content.
 }

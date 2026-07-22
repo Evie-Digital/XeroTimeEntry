@@ -40,6 +40,27 @@ export class UpstreamError extends Error {
   }
 }
 
+/**
+ * Map a non-ok Xero `Response` onto the error taxonomy above (ARCHITECTURE §5),
+ * so `withErrorEnvelope` turns it into the uniform envelope. The single source
+ * of this mapping — shared by every write wrapper (lib/xero/timeEntries) and the
+ * read `paginate` loop below, replacing the block that was copy-pasted at each
+ * site:
+ *   • 429            → `RateLimited` (carrying the `Retry-After` seconds),
+ *   • 400            → `XeroValidation` (carrying the parsed JSON body, or null),
+ *   • any other !ok  → `UpstreamError("Xero <status>")`.
+ * A no-op for ok responses. Async because the 400 branch reads the body.
+ */
+export async function throwForXeroStatus(res: Response): Promise<void> {
+  if (res.status === 429) {
+    throw new RateLimited(Number(res.headers.get("Retry-After") ?? 1));
+  }
+  if (res.status === 400) {
+    throw new XeroValidation(await res.json().catch(() => null));
+  }
+  if (!res.ok) throw new UpstreamError(`Xero ${res.status}`);
+}
+
 export type XeroFetchInit = RequestInit & {
   /** Override the base URL. Defaults to the Projects API base. */
   base?: string;
@@ -107,10 +128,7 @@ export async function paginate<T>(
     const sep = path.includes("?") ? "&" : "?";
 
     const res = await xeroFetch(`${path}${sep}${qs.toString()}`);
-    if (res.status === 429) {
-      throw new RateLimited(Number(res.headers.get("Retry-After") ?? 1));
-    }
-    if (!res.ok) throw new UpstreamError(`Xero ${res.status}`);
+    await throwForXeroStatus(res);
 
     const data = (await res.json()) as Paginated<T>;
     if (data.items) items.push(...data.items);

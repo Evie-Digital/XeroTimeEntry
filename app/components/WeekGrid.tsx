@@ -407,6 +407,23 @@ function GridCell({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  // A brief, visible "Saved" confirmation after a write lands (story 27). Set on
+  // a successful create/update; auto-clears after a short window. The timer is
+  // reset if another save lands first and cleared on unmount.
+  const [justSaved, setJustSaved] = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashSaved = useCallback(() => {
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    setJustSaved(true);
+    savedTimer.current = setTimeout(() => setJustSaved(false), 1500);
+  }, []);
+  useEffect(
+    () => () => {
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+    },
+    [],
+  );
+
   // When a create lands (empty → saved) the effect below leaves editing mode.
   // Edit/delete keep `slot.state === "saved"` throughout, so those reset via
   // their mutation callbacks instead (see commit/remove).
@@ -523,7 +540,10 @@ function GridCell({
           description: nextDescription,
         },
         {
-          onSuccess: resetToIdle, // refetch re-derives the updated Slot
+          onSuccess: () => {
+            resetToIdle(); // refetch re-derives the updated Slot
+            flashSaved(); // brief "Saved" confirmation (story 27)
+          },
           onError: (err) => {
             setPhase("error");
             setErrorMsg(saveErr(err));
@@ -549,12 +569,13 @@ function GridCell({
         description: description || undefined, // include only when non-empty
       },
       {
+        onSuccess: flashSaved, // brief "Saved" confirmation (story 27)
         onError: (err) => {
           setPhase("error"); // roll back to empty + surface the error
           setErrorMsg(saveErr(err));
         },
-        // onSuccess: the week refetch re-derives this Slot as `saved`; the
-        // effect above then leaves editing mode.
+        // The week refetch re-derives this Slot as `saved`; the effect above
+        // then leaves editing mode.
       },
     );
   }
@@ -717,6 +738,15 @@ function GridCell({
             onKeyDown={onCellKeyDown}
             className="w-14 bg-transparent text-center tabular-nums outline-none focus:ring-1 focus:ring-black/20 dark:focus:ring-white/20"
           />
+          {displayState === "saving" && (
+            <span
+              role="status"
+              aria-label="Saving"
+              title="Saving…"
+              data-cell-saving
+              className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current align-middle opacity-60"
+            />
+          )}
           {displayState === "pending" && (
             <span
               role="status"
@@ -750,6 +780,17 @@ function GridCell({
         >
           {hours}
           {noteDot}
+          {justSaved && (
+            <span
+              role="status"
+              aria-label="Saved"
+              title="Saved"
+              data-cell-saved
+              className="ml-1 text-green-600 dark:text-green-400"
+            >
+              ✓
+            </span>
+          )}
         </span>
       ) : slot.state === "conflict" ? (
         // `conflict` (2+ Entries in one Slot): read-only for editing, but the
