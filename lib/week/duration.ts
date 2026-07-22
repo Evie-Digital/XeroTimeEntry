@@ -74,3 +74,33 @@ export function parseDuration(input: string): number | null {
 export function formatMinutes(minutes: number): string {
   return formatHours(minutes);
 }
+
+/**
+ * The parsed result of a Cell's raw input (slice #08 descriptions). `minutes` is
+ * the duration (0 = clear); `description` distinguishes three cases:
+ *   - `undefined` → no `//` was typed → LEAVE the existing description unchanged
+ *     (omit on create).
+ *   - `""`        → `"<hours> //"` with nothing after → CLEAR the note.
+ *   - a string    → `"<hours> // text"` → SET the note.
+ */
+export type CellInput = {
+  minutes: number;
+  description?: string | null;
+};
+
+/**
+ * Split a Cell's raw input into duration + optional inline description on the
+ * FIRST `//` (ARCHITECTURE §6, route 1). The left side reuses `parseDuration`
+ * (so an invalid duration → `null`, "send nothing", exactly like today); the
+ * right side (trimmed) becomes the description. With no `//` the description is
+ * `undefined` (leave the saved note as-is). Kept separate from `parseDuration`,
+ * which stays the pure hours parser.
+ */
+export function parseCellInput(raw: string): CellInput | null {
+  const sep = raw.indexOf("//");
+  const durationPart = sep >= 0 ? raw.slice(0, sep) : raw;
+  const minutes = parseDuration(durationPart);
+  if (minutes === null) return null; // invalid hours → nothing sent
+  if (sep < 0) return { minutes }; // no "//" → leave the description unchanged
+  return { minutes, description: raw.slice(sep + 2).trim() };
+}

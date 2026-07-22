@@ -102,6 +102,26 @@ describe("PUT /api/timeentries/[timeEntryId]", () => {
     });
   });
 
+  it("omits the description from the Xero body when it is empty (note cleared)", async () => {
+    let seenBody: Record<string, unknown> | null = null;
+    server.use(
+      http.put(TIME_ID_URL, async ({ request }) => {
+        seenBody = (await request.json()) as Record<string, unknown>;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const res = await timeentryPUT(
+      authedPut(ID, { ...PUT_BODY, description: "" }),
+      ctx(ID),
+    );
+
+    expect(res.status).toBe(204);
+    // A full-replace with no `description` key → Xero drops the note.
+    expect(seenBody).not.toBeNull();
+    expect(seenBody!).not.toHaveProperty("description");
+  });
+
   it("surfaces the validation envelope on a Xero 400", async () => {
     server.use(
       http.put(TIME_ID_URL, () =>

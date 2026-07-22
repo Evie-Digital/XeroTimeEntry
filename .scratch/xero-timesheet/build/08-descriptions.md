@@ -2,8 +2,8 @@
 id: build-08
 title: "Build: entry descriptions (inline // + editor)"
 mode: AFK
-status: open
-assignee:
+status: closed
+assignee: implement-orchestrator
 labels: [ready-for-agent]
 blocked_by: [build-06]
 blocks: []

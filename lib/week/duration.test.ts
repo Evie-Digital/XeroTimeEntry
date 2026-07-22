@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MAX_MINUTES, formatMinutes, parseDuration } from "./duration";
+import {
+  MAX_MINUTES,
+  formatMinutes,
+  parseCellInput,
+  parseDuration,
+} from "./duration";
 
 // The duration parser is the single source of truth for "what does typing X
 // into a Cell mean" (ARCHITECTURE §2/§6). #10 adds more edge cases; the full
@@ -54,6 +59,41 @@ describe("parseDuration — clamping", () => {
   it("trims surrounding whitespace and is case-insensitive", () => {
     expect(parseDuration("  90M ")).toBe(90);
     expect(parseDuration(" 1H30 ")).toBe(90);
+  });
+});
+
+describe("parseCellInput — inline `//` descriptions (slice #08)", () => {
+  it("splits `<hours> // <text>` into minutes + description", () => {
+    expect(parseCellInput("2.5 // fixed the auth bug")).toEqual({
+      minutes: 150,
+      description: "fixed the auth bug",
+    });
+  });
+
+  it("treats `<hours> //` (empty after //) as a CLEARED note (\"\")", () => {
+    expect(parseCellInput("2.5 //")).toEqual({ minutes: 150, description: "" });
+  });
+
+  it("leaves description `undefined` when no `//` is present", () => {
+    const parsed = parseCellInput("1.5");
+    expect(parsed).toEqual({ minutes: 90 });
+    expect(parsed?.description).toBeUndefined();
+  });
+
+  it("splits on the FIRST `//` and trims the note", () => {
+    expect(parseCellInput("1:30 //  a // b ")).toEqual({
+      minutes: 90,
+      description: "a // b",
+    });
+  });
+
+  it("returns null when the LEFT (hours) side is invalid", () => {
+    expect(parseCellInput("abc // note")).toBeNull();
+  });
+
+  it("carries a 0-duration (clear) through with its note intent", () => {
+    expect(parseCellInput("0 //")).toEqual({ minutes: 0, description: "" });
+    expect(parseCellInput("")).toEqual({ minutes: 0 });
   });
 });
 

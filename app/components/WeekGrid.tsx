@@ -26,7 +26,7 @@ import {
 } from "../hooks/timeEntries";
 import { buildWeek, formatHours, rowKey, type ExtraRow } from "@/lib/week/grid";
 import { dayLabel, slotDateUtc, todayIso, weekDates } from "@/lib/week/dates";
-import { parseDuration } from "@/lib/week/duration";
+import { parseCellInput } from "@/lib/week/duration";
 import type { CellState, Slot } from "@/lib/week/types";
 import {
   GridNavProvider,
@@ -358,12 +358,14 @@ function GridCell({
   }
 
   function commit() {
-    const minutes = parseDuration(value);
-    if (minutes === null) {
+    // #08: parse hours AND an optional inline `//` description in one go.
+    const parsed = parseCellInput(value);
+    if (parsed === null) {
       setPhase("error"); // invalid — send nothing
       setErrorMsg("Enter hours like 1.5, 1:30, 90m or :45.");
       return;
     }
+    const { minutes, description } = parsed;
 
     if (slot.state === "saved") {
       // Editing an existing Entry: 0/empty ⇒ delete, otherwise full-replace PUT.
@@ -372,6 +374,13 @@ function GridCell({
         remove();
         return;
       }
+      // `description` is `undefined` when no `//` was typed → carry the Entry's
+      // existing note verbatim (full-replace). `"2.5 //"` clears it (""); the
+      // write layer omits a falsy description, so a full-replace drops the note.
+      const nextDescription =
+        description === undefined
+          ? entry.description || undefined
+          : description || undefined;
       setPhase("saving");
       setErrorMsg(null);
       update.mutate(
@@ -380,8 +389,8 @@ function GridCell({
           projectId: slot.projectId,
           taskId: entry.taskId, // carried verbatim (full-replace)
           dateUtc: entry.dateUtc,
-          duration: minutes, // the only edited field
-          description: entry.description || undefined,
+          duration: minutes,
+          description: nextDescription,
         },
         {
           onSuccess: resetToIdle, // refetch re-derives the updated Slot
@@ -407,6 +416,7 @@ function GridCell({
         taskId: slot.taskId,
         dateUtc: slotDateUtc(slot.date),
         duration: minutes,
+        description: description || undefined, // include only when non-empty
       },
       {
         onError: (err) => {
@@ -417,6 +427,27 @@ function GridCell({
         // effect above then leaves editing mode.
       },
     );
+  }
+
+  /**
+   * Open the inline description editor (slice #08 routes 2 & 3: ⌥Enter or
+   * double-click). Reuses the Cell's own input + `commit()` path rather than a
+   * separate popover: a `saved` Cell re-seeds the input as `"<hours> // <note>"`
+   * so the note is editable inline (Enter → PUT). An `empty` Cell has no Entry
+   * to annotate — a note needs hours first — so we just focus its (always-
+   * present) input, ready for `"2.5 // note"`. `locked`/`conflict` never open.
+   */
+  function openNoteEditor() {
+    if (slot.state === "locked" || slot.state === "conflict") return;
+    if (slot.state === "empty") {
+      inputRef.current?.focus(); // gentle guidance: enter hours (+ // note) here
+      return;
+    }
+    const entry = slot.entries[0];
+    const hours = slot.minutes > 0 ? formatHours(slot.minutes) : "";
+    setValue(`${hours} // ${entry?.description ?? ""}`);
+    setPhase("editing");
+    setErrorMsg(null);
   }
 
   // Register the Cell's focusable element with the roving-focus model. Stable
@@ -447,6 +478,13 @@ function GridCell({
   function onCellKeyDown(e: React.KeyboardEvent) {
     const editing = phase === "editing";
     const k = e.key;
+
+    // ⌥Enter (Alt+Enter) opens the inline description editor (slice #08).
+    if (e.altKey && k === "Enter") {
+      e.preventDefault();
+      if (!editing) openNoteEditor();
+      return;
+    }
 
     if (k === "ArrowRight" || k === "ArrowLeft" || k === "ArrowUp" || k === "ArrowDown") {
       if (editing) return; // let the input caret move; keep the edit
@@ -502,12 +540,26 @@ function GridCell({
   const hours = slot.minutes > 0 ? formatHours(slot.minutes) : "";
   const showInput = slot.state === "empty" || phase !== "idle";
   const showSavedValue = slot.state === "saved" && phase === "idle";
+  // A single-Entry Slot's inline note drives the dot indicator (slice #08).
+  const note = slot.entries.length === 1 ? slot.entries[0].description : "";
+
+  // The dot indicator for a Cell whose Entry carries a description (accessible:
+  // `aria-label`/`title` reveal the note text). Shown on `saved`/`locked` Cells.
+  const noteDot = note ? (
+    <span
+      data-note-indicator
+      aria-label={`Note: ${note}`}
+      title={note}
+      className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-current align-middle opacity-60"
+    />
+  ) : null;
 
   return (
     <td
       data-testid={`cell-${slot.projectId}-${slot.taskId}-${slot.date}`}
       data-state={displayState}
       data-today={isToday ? "true" : undefined}
+      onDoubleClick={editable ? openNoteEditor : undefined}
       className={`p-2 text-center tabular-nums ${
         isToday ? "bg-black/5 dark:bg-white/10" : ""
       } ${slot.state === "locked" ? "opacity-70" : ""}`}
@@ -557,6 +609,7 @@ function GridCell({
           className="cursor-text outline-none focus:ring-1 focus:ring-black/20 dark:focus:ring-white/20"
         >
           {hours}
+          {noteDot}
         </span>
       ) : (
         // Read-only `locked`/`conflict`: still focusable so arrow/Tab nav can
@@ -569,6 +622,7 @@ function GridCell({
           className="outline-none focus:ring-1 focus:ring-black/20 dark:focus:ring-white/20"
         >
           <span>{hours}</span>
+          {noteDot}
           {slot.state === "locked" && (
             <span
               aria-label="locked"
