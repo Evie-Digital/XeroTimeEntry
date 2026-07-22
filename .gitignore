@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Secrets / tokens (never commit — the app stores an encrypted Xero token locally)
+.env
+.env.local
+tokens.json
+*.pem
+
+# Build output
+.next/
+dist/
+out/
+
+# OS / editor
+.DS_Store
