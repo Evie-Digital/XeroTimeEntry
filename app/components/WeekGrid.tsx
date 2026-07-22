@@ -41,6 +41,7 @@ import {
   useRovingFocus,
 } from "./gridNav";
 import { AddRowPicker } from "./AddRowPicker";
+import { ConflictResolver } from "./ConflictResolver";
 
 type Status = { authenticated: boolean };
 
@@ -424,7 +425,27 @@ function GridCell({
     }
   }, [phase, slot.state]);
 
-  const displayState: CellState = phase === "idle" ? slot.state : phase;
+  // Transient-failure resilience (slice #10, ticket 0011). While a write is
+  // in-flight we're in the `saving` phase; if the ACTIVE mutation has already
+  // failed at least once but React Query is still retrying it (bounded backoff,
+  // see `writeShouldRetry`/`writeRetryDelay`), surface the distinct `pending`
+  // state. The Cell's `onError` only fires once retries are exhausted → `error`;
+  // on recovery the week refetch re-derives the Slot as `saved`.
+  const activeWrite = create.isPending
+    ? create
+    : update.isPending
+      ? update
+      : del.isPending
+        ? del
+        : null;
+  const isRetrying = (activeWrite?.failureCount ?? 0) >= 1;
+
+  const displayState: CellState =
+    phase === "idle"
+      ? slot.state
+      : phase === "saving" && isRetrying
+        ? "pending"
+        : phase;
 
   function resetToIdle() {
     setPhase("idle");
@@ -686,6 +707,16 @@ function GridCell({
             onKeyDown={onCellKeyDown}
             className="w-14 bg-transparent text-center tabular-nums outline-none focus:ring-1 focus:ring-black/20 dark:focus:ring-white/20"
           />
+          {displayState === "pending" && (
+            <span
+              role="status"
+              title="Save failed — retrying…"
+              data-cell-pending
+              className="ml-1 animate-pulse text-amber-600 dark:text-amber-400"
+            >
+              ⟳
+            </span>
+          )}
           {phase === "error" && errorMsg && (
             <span
               role="alert"
@@ -710,9 +741,23 @@ function GridCell({
           {hours}
           {noteDot}
         </span>
+      ) : slot.state === "conflict" ? (
+        // `conflict` (2+ Entries in one Slot): read-only for editing, but the
+        // Cell can be EXPANDED to delete extras "down to one" (slice #10). The
+        // resolver owns the focusable expand button (roving-focus registration),
+        // so nav still moves across the Cell.
+        <ConflictResolver
+          slot={slot}
+          from={from}
+          to={to}
+          register={registerStatic}
+          tabIndex={navTabIndex}
+          onFocus={onFocus}
+          onKeyDown={onCellKeyDown}
+        />
       ) : (
-        // Read-only `locked`/`conflict`: still focusable so arrow/Tab nav can
-        // move ACROSS it, but no role/affordance and its keydown never writes.
+        // Read-only `locked`: still focusable so arrow/Tab nav can move ACROSS
+        // it, but no role/affordance and its keydown never writes.
         <span
           ref={registerStatic}
           tabIndex={navTabIndex}
@@ -729,15 +774,6 @@ function GridCell({
               className="ml-1"
             >
               🔒
-            </span>
-          )}
-          {slot.state === "conflict" && (
-            <span
-              aria-label="conflict"
-              title="Multiple entries in Xero — read-only"
-              className="ml-1"
-            >
-              ⋯
             </span>
           )}
         </span>

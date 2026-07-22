@@ -119,7 +119,12 @@ describe("WeekGrid", () => {
 
     const cell = await screen.findByTestId("cell-proj-1-task-1-2026-07-22");
     expect(cell).toHaveAttribute("data-state", "conflict");
-    expect(within(cell).getByLabelText("conflict")).toBeInTheDocument();
+    // Read-only for editing (no input) but exposes the resolve affordance
+    // (slice #10 — expand to delete extras down to one).
+    expect(within(cell).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(
+      within(cell).getByLabelText("Multiple entries in Xero — resolve conflict"),
+    ).toBeInTheDocument();
     // Summed: 60 + 30 = 90 min = 1.5h.
     expect(cell).toHaveTextContent("1.5");
   });

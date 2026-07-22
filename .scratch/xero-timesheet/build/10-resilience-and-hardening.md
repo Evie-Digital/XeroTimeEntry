@@ -2,8 +2,8 @@
 id: build-10
 title: "Build: transient-failure resilience + conflict resolve + hardening"
 mode: AFK
-status: open
-assignee:
+status: closed
+assignee: implement-orchestrator
 labels: [ready-for-agent]
 blocked_by: [build-06, build-07]
 blocks: []

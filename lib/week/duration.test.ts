@@ -38,6 +38,63 @@ describe("parseDuration — the bare-integer ≥16 heuristic", () => {
   });
 });
 
+describe("parseDuration — the ≥16 boundary, exhaustively (slice #10 hardening)", () => {
+  // The rule (ARCHITECTURE §6): a bare integer < 16 is HOURS, ≥ 16 is MINUTES.
+  // Pin the exact boundary so a future refactor can't silently drift it.
+  it.each([
+    ["0", 0], // zero → clear (below the heuristic but 0 means "clear")
+    ["1", 60], // 1h
+    ["8", 480], // 8h
+    ["14", 840], // 14h — still hours
+    ["15", 900], // 15h — last HOURS value
+    ["16", 16], // 16m — first MINUTES value
+    ["17", 17], // 17m
+    ["30", 30], // 30m
+    ["90", 90], // 90m
+    ["59940", MAX_MINUTES], // exactly the ceiling, as minutes
+  ])("bare %s → %i minutes", (input, expected) => {
+    expect(parseDuration(input)).toBe(expected);
+  });
+
+  it("keeps the boundary distinct: 15 → 900m (hours) but 16 → 16m (minutes)", () => {
+    expect(parseDuration("15")).toBe(900);
+    expect(parseDuration("16")).toBe(16);
+    // The two must never collide.
+    expect(parseDuration("15")).not.toBe(parseDuration("16"));
+  });
+});
+
+describe("parseDuration — negatives, garbage & odd whitespace (slice #10 hardening)", () => {
+  it.each([
+    "-1",
+    "-90",
+    "-1.5",
+    "1-2",
+    "abc",
+    "1.2.3",
+    "h",
+    "m",
+    "1h30m", // mixed suffix not accepted
+    "1:2:3",
+    "1:60:00",
+    ":", // bare colon, no minutes
+    "1..5",
+    "1,5", // comma decimal not accepted
+    "0x10",
+    "NaN",
+    "Infinity",
+    "1 5", // internal space
+  ])("returns null for garbage/negative %j", (input) => {
+    expect(parseDuration(input)).toBeNull();
+  });
+
+  it("still trims surrounding whitespace around a valid value", () => {
+    expect(parseDuration("\t90\n")).toBe(90);
+    expect(parseDuration("  :45  ")).toBe(45);
+    expect(parseDuration("  1h  ")).toBe(60);
+  });
+});
+
 describe("parseDuration — clear vs invalid", () => {
   it("treats empty / whitespace / 0 as 0 (clear)", () => {
     expect(parseDuration("")).toBe(0);

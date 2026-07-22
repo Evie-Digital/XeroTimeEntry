@@ -35,8 +35,11 @@ export type WeekEntry = {
  * `saved` / `locked` / `conflict`) is DERIVED from a Slot's entries by
  * `buildWeek`; the transient write states (`editing` / `saving` / `error`) are
  * held per-Cell by the grid during a create/edit (slice #05 adds create; #06
- * edit/delete and #07 keyboard reuse the same machinery). `pending`
- * (auto-retry, Phase 4) lands later.
+ * edit/delete and #07 keyboard reuse the same machinery). `pending` (slice #10,
+ * ticket 0011) is the transient auto-retry state: a write that has FAILED at
+ * least once but is still retrying with backoff (visually distinct from
+ * `saving`'s first attempt and `error`'s exhausted-retries). In-memory only —
+ * a reload while `pending` drops it and the grid re-fetches.
  */
 export type CellState =
   | "empty"
@@ -45,6 +48,7 @@ export type CellState =
   | "conflict"
   | "editing"
   | "saving"
+  | "pending"
   | "error";
 
 /**
