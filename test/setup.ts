@@ -11,6 +11,9 @@ beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
+  // The grid's "recent rows" prefill persists to localStorage (#09); clear it
+  // so seeded rows don't leak between tests.
+  localStorage.clear();
 });
 
 afterAll(() => server.close());

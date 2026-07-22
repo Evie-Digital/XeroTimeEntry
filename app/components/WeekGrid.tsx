@@ -15,7 +15,7 @@
 // (projectId, taskId, date, entries, minutes, state) and is addressable by
 // `data-testid="cell-{pid}-{tid}-{date}"` with the live state on `data-state`.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWeek } from "../hooks/week";
 import { ApiError } from "../hooks/lists";
@@ -24,8 +24,15 @@ import {
   useDeleteTimeEntry,
   useUpdateTimeEntry,
 } from "../hooks/timeEntries";
-import { buildWeek, formatHours, rowKey, type ExtraRow } from "@/lib/week/grid";
-import { dayLabel, slotDateUtc, todayIso, weekDates } from "@/lib/week/dates";
+import {
+  buildWeek,
+  distinctRows,
+  formatHours,
+  rowKey,
+  type ExtraRow,
+} from "@/lib/week/grid";
+import { addRecentRow, readRecentRows } from "@/lib/week/recentRows";
+import { addDays, dayLabel, slotDateUtc, todayIso, weekDates } from "@/lib/week/dates";
 import { parseCellInput } from "@/lib/week/duration";
 import type { CellState, Slot } from "@/lib/week/types";
 import {
@@ -51,8 +58,76 @@ export function WeekGridSection() {
 
   if (!status?.authenticated) return null;
 
-  const dates = weekDates(todayIso());
-  return <WeekGrid from={dates[0]} to={dates[6]} />;
+  return <WeekView />;
+}
+
+export type WeekViewProps = {
+  /** Override "today" for deterministic tests; defaults to the local date. */
+  today?: string;
+};
+
+/**
+ * Week navigation (#09): owns the displayed week's ANCHOR date and derives the
+ * `from`/`to` range for `WeekGrid`. Prev/Next shift the anchor by a week; "This
+ * week" jumps back to today's week. The today-highlight always keys off the real
+ * `today` (passed through), so it lights up only when the real today is on
+ * screen. Each week `WeekGrid` seeds its own "copy last week" prefill (source A
+ * = its previous week; source B = the recent-rows localStorage set).
+ */
+export function WeekView({ today }: WeekViewProps) {
+  const todayDate = today ?? todayIso();
+  const [anchor, setAnchor] = useState(todayDate);
+  const dates = weekDates(anchor);
+  const from = dates[0];
+  const to = dates[6];
+  const isThisWeek = from === weekDates(todayDate)[0];
+
+  const btn =
+    "rounded border border-black/15 px-3 py-1 text-sm hover:bg-black/5 disabled:opacity-40 dark:border-white/20 dark:hover:bg-white/10";
+
+  return (
+    <div className="flex flex-col gap-3">
+      <nav
+        aria-label="Week navigation"
+        className="flex flex-wrap items-center gap-2"
+      >
+        <button
+          type="button"
+          data-testid="week-prev"
+          aria-label="Previous week"
+          onClick={() => setAnchor((a) => addDays(a, -7))}
+          className={btn}
+        >
+          ← Prev
+        </button>
+        <button
+          type="button"
+          data-testid="week-today"
+          onClick={() => setAnchor(todayDate)}
+          disabled={isThisWeek}
+          className={btn}
+        >
+          This week
+        </button>
+        <button
+          type="button"
+          data-testid="week-next"
+          aria-label="Next week"
+          onClick={() => setAnchor((a) => addDays(a, 7))}
+          className={btn}
+        >
+          Next →
+        </button>
+        <span
+          data-testid="week-range"
+          className="ml-2 text-sm opacity-70 tabular-nums"
+        >
+          {dayLabel(from)} – {dayLabel(to)}
+        </span>
+      </nav>
+      <WeekGrid from={from} to={to} today={todayDate} />
+    </div>
+  );
 }
 
 export type WeekGridProps = {
@@ -74,8 +149,29 @@ export function WeekGrid({
   const dates = weekDates(from);
   const todayDate = today ?? todayIso();
 
+  // Prefill "copy last week" (#09, ARCHITECTURE §6). Source A: the distinct
+  // (projectId, taskId) Rows from the PREVIOUS week's entries — fetched via the
+  // same `/api/week` route/hook. Source B: the recent-rows localStorage set
+  // (Rows added-but-not-yet-logged). Both are DERIVED (not state) so they seed
+  // per displayed week automatically as `from` changes, and re-read when the
+  // previous week resolves — while user-added Rows live in `extraRows` below.
+  const prevDates = useMemo(() => weekDates(addDays(from, -7)), [from]);
+  const prevWeek = useWeek(prevDates[0], prevDates[6]);
+  const seedRows = useMemo<ExtraRow[]>(() => {
+    const merged = new Map<string, ExtraRow>();
+    for (const r of [
+      ...distinctRows(prevWeek.data ?? []),
+      ...readRecentRows(),
+    ]) {
+      merged.set(rowKey(r.projectId, r.taskId), r);
+    }
+    return [...merged.values()];
+    // `prevWeek.data` changes whenever `from` does (its query key is derived
+    // from `from`), so it alone re-seeds — and re-reads recent-rows — per week.
+  }, [prevWeek.data]);
+
   // Client-side Rows added-but-not-yet-logged (add-row #07 / prefill #09).
-  // UNIONed with the entry-derived Rows by `buildWeek` and de-duped by rowKey.
+  // UNIONed with the seed + entry-derived Rows by `buildWeek`, de-duped by rowKey.
   const [extraRows, setExtraRows] = useState<ExtraRow[]>(
     initialExtraRows ?? [],
   );
@@ -84,7 +180,7 @@ export function WeekGrid({
   // its index from the rebuilt model in an effect below).
   const [focusRowKey, setFocusRowKey] = useState<string | null>(null);
 
-  const model = buildWeek(data ?? [], dates, extraRows);
+  const model = buildWeek(data ?? [], dates, [...seedRows, ...extraRows]);
   const nav = useRovingFocus(model.rows.length, dates.length);
 
   // ⌘/Ctrl+K opens the add-row picker from anywhere in the app.
@@ -123,6 +219,9 @@ export function WeekGrid({
         ? prev
         : [...prev, row],
     );
+    // Source B: remember the Row so it carries into future weeks' seeds even
+    // before any time is logged to it (prefill #09).
+    addRecentRow(row);
     setPickerOpen(false);
     setFocusRowKey(key);
   }, []);

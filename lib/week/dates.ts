@@ -33,6 +33,18 @@ export function weekDates(anchor: string): string[] {
   });
 }
 
+/**
+ * Shift a pure calendar date by `n` days (UTC math, so no timezone drift).
+ * Used by week navigation (#09) to move the anchor a week at a time:
+ * `addDays(anchor, -7)` / `addDays(anchor, 7)`. Any full ISO string is accepted
+ * (only its date portion is used). `"2026-07-20", -7` → `"2026-07-13"`.
+ */
+export function addDays(date: string, n: number): string {
+  const d = new Date(`${datePortion(date)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 /** Today's LOCAL calendar date as "YYYY-MM-DD" (what "today" means in the grid). */
 export function todayIso(now: Date = new Date()): string {
   const y = now.getFullYear();

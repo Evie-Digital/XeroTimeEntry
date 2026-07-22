@@ -2,8 +2,8 @@
 id: build-09
 title: "Build: copy-last-week prefill + week navigation"
 mode: AFK
-status: open
-assignee:
+status: closed
+assignee: implement-orchestrator
 labels: [ready-for-agent]
 blocked_by: [build-04, build-07]
 blocks: []
