@@ -42,14 +42,16 @@ Reaching the destination = every decision below is made and the assembled plan e
 - [Research: Xero OAuth 2.0 flow for a local single-user app](tickets/0002-xero-oauth-local.md) — use **standard Auth Code + confidential secret** (server-side; PKCE only for native); scopes `openid profile email projects offline_access` (`projects`=read+write, `email` needed for userId match); redirect `http://localhost:<port>/...` OK (not 127.0.0.1), exact match, no wildcards; access 30 min / refresh 60-day and **rotates every use** (persist atomically, 30-min grace); every call needs `Authorization` + `Xero-tenant-id` from `GET /connections`.
 - [Research: userId resolution via projectsusers & connections](tickets/0004-xero-userid-resolution.md) — every POST's `userId` comes from `GET /projectsusers` (items of `{userId,name,email}`, nothing marks the caller); resolve "me" by matching the OpenID `id_token` **email** claim; `userId` is a stable per-tenant UUID → cache by `(tenantId,email)`; guard the "not a Projects user in this tenant" no-match case.
 - [Research: Xero API rate limits, 429 handling, pagination & active-filtering](tickets/0003-xero-limits-pagination.md) — 60/min + 5k/day + 5 concurrent per tenant; 429 sends `Retry-After` + `X-*-Remaining` headers; `page`/`pageSize` (max 500) with a `pagination` object; active = `states=INPROGRESS` for projects, client-side `status` filter for tasks; 5–15 min cache TTL.
+- [Decide: grid cell ↔ Xero time-entry domain model](tickets/0005-grid-entry-model.md) — **one Entry per Cell**; a **Slot** `(projectId,taskId,localDate)` holds ≤1 Entry; POST/PUT/DELETE map to empty/edit/clear; canonical unit **integer minutes**; **pure calendar dates, never zone-convert** (`dateUtc=<localDate>T00:00:00Z`, bucket on the UTC date substring); optional per-Cell note; 2+-entry Slots render read-only `conflict`, invoiced entries read-only; blank Rows/Slots are drafts (nothing POSTed until a value).
 
 ## Not yet specified
 
 <!-- in-scope fog, too blurry to ticket yet; graduates as the frontier advances -->
 
-- **Offline / draft support (Phase 4, optional).** Local drafts of unsaved grid edits, replay on
-  reconnect. Can't sharpen until the grid↔entry model (grid model ticket) and the client caching
-  model (caching ticket) land — both decide what a "draft" even is.
+- **Offline / draft support (Phase 4, optional).** The grid-model ticket now defines a "draft" (a
+  Row/Slot with no POSTed Entry yet). What remains foggy is the *offline* dimension — persisting
+  dirty edits while disconnected and replaying them on reconnect — which still hangs on the client
+  caching model (caching ticket, 0007). Sharpens once 0007 lands.
 - **"Frequent projects/tasks" ranking.** The exact recency/frequency algorithm and how many to
   prefill. Depends on the prefill decision inside the caching ticket.
 - **Exact granular-scope token names.** Since app registration happens after 2 Mar 2026, the app
