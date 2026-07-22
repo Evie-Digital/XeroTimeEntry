@@ -2,8 +2,8 @@
 id: build-07
 title: "Build: full keyboard model + add-row picker"
 mode: AFK
-status: open
-assignee:
+status: closed
+assignee: implement-orchestrator
 labels: [ready-for-agent]
 blocked_by: [build-05]
 blocks: [build-09, build-10]
