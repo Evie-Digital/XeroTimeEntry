@@ -20,10 +20,11 @@ Reaching the destination = every decision below is made and the assembled plan e
 - **Domain:** Xero Projects API v2.0 (`https://api.xero.com/projects.xro/2.0/`). Time entries are
   discrete records (duration in **minutes**, `dateUtc` ISO 8601, keyed by `projectId` + `taskId` +
   `userId`). OAuth 2.0 with 30-minute access tokens + refresh.
-- **Fixed scope (from charting):** single user (just Gavin); runs local-only on `localhost`;
-  refresh token in a local **encrypted file** (no cloud, no shared DB); grid does **read + edit +
-  delete** of existing entries; stack is **Next.js App Router** (API routes proxy Xero so the
-  client secret never reaches the browser).
+- **Fixed scope (from charting):** single user (just Gavin); runs local-only on `localhost`; grid
+  does **read + edit + delete** of existing entries; stack is **Next.js App Router** (API routes
+  proxy Xero so the client secret never reaches the browser). _(Token storage: superseded by the
+  token-storage decision — tokens are held **in server-process memory only, never persisted**;
+  ~weekly re-login. No cloud, no shared DB.)_
 - **Skills each session should consult:** `/grilling` + `/domain-modeling` for decision tickets;
   `/research` for research tickets; `/prototype` for the grid UX ticket.
 - **Plan, don't do:** decision tickets produce decisions, not code. The single exception is the
@@ -43,6 +44,7 @@ Reaching the destination = every decision below is made and the assembled plan e
 - [Research: userId resolution via projectsusers & connections](tickets/0004-xero-userid-resolution.md) — every POST's `userId` comes from `GET /projectsusers` (items of `{userId,name,email}`, nothing marks the caller); resolve "me" by matching the OpenID `id_token` **email** claim; `userId` is a stable per-tenant UUID → cache by `(tenantId,email)`; guard the "not a Projects user in this tenant" no-match case.
 - [Research: Xero API rate limits, 429 handling, pagination & active-filtering](tickets/0003-xero-limits-pagination.md) — 60/min + 5k/day + 5 concurrent per tenant; 429 sends `Retry-After` + `X-*-Remaining` headers; `page`/`pageSize` (max 500) with a `pagination` object; active = `states=INPROGRESS` for projects, client-side `status` filter for tasks; 5–15 min cache TTL.
 - [Decide: grid cell ↔ Xero time-entry domain model](tickets/0005-grid-entry-model.md) — **one Entry per Cell**; a **Slot** `(projectId,taskId,localDate)` holds ≤1 Entry; POST/PUT/DELETE map to empty/edit/clear; canonical unit **integer minutes**; **pure calendar dates, never zone-convert** (`dateUtc=<localDate>T00:00:00Z`, bucket on the UTC date substring); optional per-Cell note; 2+-entry Slots render read-only `conflict`, invoiced entries read-only; blank Rows/Slots are drafts (nothing POSTed until a value).
+- [Decide: local encrypted token storage & auto-refresh scheme](tickets/0006-token-storage.md) — **pivoted to NO persistence**: refresh/access tokens held in **server-process memory only**, discarded on process stop (⇒ ~one Xero login/week) — dissolves the encryption-at-rest problem. Only persisted secret is the app **client secret** in `.env.local`. Silent refresh = proactive (near-expiry) + reactive (401 retry once), rotating refresh token overwritten in memory, **single-flight** to avoid concurrent-refresh races; refresh failure → clear + re-auth. Browser↔server via a minimal httpOnly session cookie.
 
 ## Not yet specified
 
@@ -58,8 +60,8 @@ Reaching the destination = every decision below is made and the assembled plan e
   uses Xero's new granular scopes; the precise Projects granular token strings must be read off the
   live Scopes / Granular-Scopes FAQ when registering. Sharpens into the app-registration task.
 - **Local app packaging / launch ergonomics.** Whether it's `npm run dev`, a packaged binary, or a
-  menubar launcher, and how the encrypted-token passphrase is entered at start. Revisit once the
-  token-storage and API-layer tickets are concrete.
+  menubar launcher, and how the app is started for a weekly session. (No passphrase step — tokens
+  are memory-only now.) Revisit once the API-layer ticket is concrete.
 
 ## Out of scope
 
