@@ -40,6 +40,62 @@ export const TEST_TASKS = [
   { taskId: "task-4", name: "Locked Work", status: "LOCKED" },
 ];
 
+// Time-entry fixture for the /week full-scan, keyed by projectId. Note te-1's
+// `dateUtc` has a NON-midnight time (09:30Z) — the grid must still bucket it to
+// 2026-07-20 by the verbatim date portion (no timezone drift / off-by-one).
+// te-3 is INVOICED (renders `locked`) and its task (task-3) is non-ACTIVE, so
+// its name only resolves because /week fetches the UNFILTERED Tasks list.
+export type XeroTimeEntryFixture = {
+  timeEntryId: string;
+  taskId: string;
+  userId: string;
+  dateUtc: string;
+  duration: number;
+  description?: string;
+  status: string;
+};
+
+export const TEST_TIME_ENTRIES: Record<string, XeroTimeEntryFixture[]> = {
+  "proj-1": [
+    {
+      timeEntryId: "te-1",
+      taskId: "task-1",
+      userId: "user-2",
+      dateUtc: "2026-07-20T09:30:00Z", // Monday, non-midnight
+      duration: 90,
+      description: "Standup + dev",
+      status: "ACTIVE",
+    },
+    {
+      timeEntryId: "te-2",
+      taskId: "task-1",
+      userId: "user-2",
+      dateUtc: "2026-07-21T00:00:00Z", // Tuesday
+      duration: 120,
+      status: "ACTIVE",
+    },
+    {
+      timeEntryId: "te-3",
+      taskId: "task-3",
+      userId: "user-2",
+      dateUtc: "2026-07-22T00:00:00Z", // Wednesday — INVOICED (locked)
+      duration: 60,
+      description: "Invoiced work",
+      status: "INVOICED",
+    },
+  ],
+  "proj-2": [
+    {
+      timeEntryId: "te-4",
+      taskId: "task-2",
+      userId: "user-2",
+      dateUtc: "2026-07-20T14:00:00Z", // Monday
+      duration: 30,
+      status: "ACTIVE",
+    },
+  ],
+};
+
 /** Slice `items` into a Xero-style paginated envelope for the requested page. */
 function paginatedJson<T>(items: T[], url: URL, pageSize: number) {
   const page = Number(url.searchParams.get("page") ?? "1");
@@ -122,5 +178,17 @@ export const xeroHandlers = [
   http.get(
     "https://api.xero.com/projects.xro/2.0/Projects/:projectId/Tasks",
     ({ request }) => paginatedJson(TEST_TASKS, new URL(request.url), 2),
+  ),
+
+  // GET /Projects/{id}/Time — the per-project time list the /week scan fans out
+  // over. Returns that project's fixture entries (empty for unknown projects),
+  // paginated. Xero filters by userId/date server-side; the fixtures are already
+  // in-range so this handler returns them verbatim.
+  http.get(
+    "https://api.xero.com/projects.xro/2.0/Projects/:projectId/Time",
+    ({ request, params }) => {
+      const entries = TEST_TIME_ENTRIES[params.projectId as string] ?? [];
+      return paginatedJson(entries, new URL(request.url), 500);
+    },
   ),
 ];

@@ -32,7 +32,9 @@ export class ApiError extends Error {
   }
 }
 
-async function getJson<T>(url: string): Promise<T> {
+/** Fetch JSON, mapping a non-ok API error envelope to `ApiError`. Shared with
+ *  the week hook so every client fetch surfaces the same error `code`. */
+export async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {

@@ -2,8 +2,8 @@
 id: build-04
 title: "Build: read-only weekly grid (week load + render)"
 mode: AFK
-status: open
-assignee:
+status: closed
+assignee: implement-orchestrator
 labels: [ready-for-agent]
 blocked_by: [build-03]
 blocks: [build-05, build-09]
