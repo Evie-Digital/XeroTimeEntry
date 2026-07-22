@@ -121,7 +121,7 @@ describe("WeekGrid — create from a cell", () => {
   });
 
   it("a failed POST rolls the cell back and shows error", async () => {
-    let weekEntries: WeekEntry[] = [seedEntry()];
+    const weekEntries: WeekEntry[] = [seedEntry()];
     server.use(
       http.get("*/api/week", () => HttpResponse.json(weekEntries)),
       http.post("*/api/timeentries", () =>

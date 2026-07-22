@@ -205,6 +205,8 @@ export function WeekGrid({
     );
     if (idx >= 0) {
       nav.focusCell(idx, 0);
+      // One-shot: clear the focus target after focusing the freshly-added row.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFocusRowKey(null);
     }
   }, [focusRowKey, model.rows, nav]);
@@ -213,6 +215,9 @@ export function WeekGrid({
     model.rows.map((r) => rowKey(r.projectId, r.taskId)),
   );
 
+  // Stable identity is needed for the picker/keydown deps below; the compiler
+  // can't prove the manual memoization is preservable here.
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const addRow = useCallback((row: ExtraRow) => {
     const key = rowKey(row.projectId, row.taskId);
     setExtraRows((prev) =>
@@ -407,9 +412,14 @@ function GridCell({
   // their mutation callbacks instead (see commit/remove).
   useEffect(() => {
     if (slot.state !== "empty") {
+      // Intentional: reset this cell's local edit phase when its derived slot
+      // state changes (e.g. a create landed) — React's documented "adjust state
+      // on external change" case.
+      /* eslint-disable react-hooks/set-state-in-effect */
       setPhase("idle");
       setValue("");
       setErrorMsg(null);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [slot.state]);
 

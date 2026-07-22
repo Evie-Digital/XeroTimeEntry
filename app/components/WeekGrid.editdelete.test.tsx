@@ -178,7 +178,7 @@ describe("WeekGrid — edit & delete a saved cell", () => {
   });
 
   it("a failed PUT rolls the cell back and shows error (nothing persisted)", async () => {
-    let weekEntries: WeekEntry[] = [entry({ timeEntryId: "te-mon", duration: 60 })];
+    const weekEntries: WeekEntry[] = [entry({ timeEntryId: "te-mon", duration: 60 })];
     server.use(
       http.get("*/api/week", () => HttpResponse.json(weekEntries)),
       http.put("*/api/timeentries/:id", () =>
