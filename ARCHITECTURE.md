@@ -35,7 +35,7 @@ The core model (ticket 0005). This vocabulary is used everywhere — grid, API, 
 | **Entry** | A Xero time-entry record: `{ timeEntryId, projectId, taskId, userId, dateUtc, duration (minutes), description, status }`. |
 | **Slot** | A grid cell's identity: `(projectId, taskId, localDate)`. **Invariant: a Slot maps to ≤ 1 Entry.** |
 | **Row** | A `(projectId, taskId)` pairing across the week's 7 Slots. |
-| **Cell** | The UI of a Slot: hours + optional note + a state (`empty / editing / saving / saved / error / locked / conflict`). |
+| **Cell** | The UI of a Slot: hours + optional note + a state (`empty / editing / saving / pending / saved / error / locked / conflict`). |
 
 **Rules:**
 - **One Entry per Cell.** Empty Slot + hours → `POST`; saved Slot changed → `PUT` (full-replace);
@@ -215,6 +215,13 @@ the Cell; (3) **⌥Enter**. A Cell with a note shows a dot indicator.
 sync state. **No batch "submit the week" button.** Consequence: an unresolved `conflict` Cell is
 **non-blocking** — it never holds up any other Cell.
 
+**Transient-failure resilience (ticket 0011):** on a write failure (network drop, Xero 5xx, or a 429
+outliving the client's initial retry), the Cell enters a **`pending`** state and the mutation
+**auto-retries with exponential backoff** (honoring `Retry-After`) for a bounded window. Success →
+`saved`; retries exhausted → `error` (manual re-commit). This is **in-memory only** (React Query
+mutation state) — a page reload while `pending` drops the pending edit and the grid re-fetches from
+Xero. No durable queue; **full offline week composition is out of scope.**
+
 ---
 
 ## 7. Implementation roadmap
@@ -243,9 +250,12 @@ sync state. **No batch "submit the week" button.** Consequence: an unresolved `c
    double-click, ⌥Enter).
 10. Implement prefill (copy last week A+B) and week navigation.
 
-### Phase 4 — Offline / drafts *(optional — see ticket 0011)*
-11. If desired, resolve ticket 0011 (queue-and-replay vs fail-loud when Xero is unreachable) and add a
-    durable mutation queue + `pending` Cell state. The core app (Phases 1–3) ships without this.
+### Phase 4 — Transient-failure resilience (ticket 0011)
+11. Add the **`pending`** Cell state and configure React Query mutation `retry` + `retryDelay`
+    (honoring `Retry-After`) so failed writes auto-retry with backoff for a bounded window, then fall
+    to `error`. In-memory only — no durable queue. Small addition on top of Phase 2's mutations; the
+    core app (Phases 1–3) ships without it. *(Durable queue-and-replay / full offline composition was
+    considered and ruled out of scope.)*
 
 ---
 
@@ -402,7 +412,7 @@ export async function createTimeEntry(entry: NewTimeEntry) {
 
 | Item | Status |
 |---|---|
-| **Offline / draft support** | Optional Phase 4 — ticket 0011 (queue-and-replay vs fail-loud). Not on the critical path. |
+| **Offline / draft support** | **Decided** (ticket 0011) — auto-retry transient, in-memory (Phase 4 above). Durable offline ruled out of scope. |
 | **Granular-scope token names** | Verify exact Projects granular scope strings on Xero's live Scopes / Granular-Scopes FAQ at app-registration time (post-2 Mar 2026). |
 | **Local app packaging / launch** | How you start a weekly session (`npm run dev` vs a launcher). No passphrase step (tokens memory-only). |
 

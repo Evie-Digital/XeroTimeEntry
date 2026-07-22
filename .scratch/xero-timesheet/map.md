@@ -15,10 +15,10 @@ including two reference code snippets (OAuth token-refresh helper; time-entry wr
 Reaching the destination = every decision below is made and the assembled plan exists.
 **The implementation itself is out of scope** — this map produces the plan, not the app.
 
-> ✅ **REACHED (critical path complete).** The build plan lives at [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
-> All nine critical-path tickets (0001–0009) are resolved and synthesised in
-> [the assembly ticket](tickets/0010-assemble-architecture-plan.md). Only the **optional** offline
-> decision ([0011](tickets/0011-offline-draft-support.md)) remains open, off the critical path.
+> ✅ **REACHED — map complete, no open tickets.** The build plan lives at
+> [`ARCHITECTURE.md`](../../ARCHITECTURE.md). All eleven tickets (0001–0011, including the optional
+> offline decision) are resolved and synthesised. The way to the destination is fully clear — nothing
+> left to decide before building.
 
 ## Notes
 
@@ -54,6 +54,7 @@ Reaching the destination = every decision below is made and the assembled plan e
 - [Prototype: keyboard-driven weekly grid UX](tickets/0008-grid-ux-prototype.md) — UX spec locked from a signed-off [interactive prototype](https://claude.ai/code/artifact/7ce3ffba-c9db-4709-8654-139979c8c5a8). Type-to-edit; **Enter=commit+down, Tab=commit+right** (wraps); ⌫ clears; **⌘K** add-row typeahead. Duration accepts `1.5`/`1:30`/`90m`/`1h30` (bare int ≥16 = minutes). **Description via inline `2.5 // note`, double-click, or ⌥Enter**. **Live per-cell autosave, no batch submit** ⇒ a `conflict` cell is non-blocking. Cell states: empty/editing/saving/saved/error/locked/conflict.
 - [Decide: internal API abstraction layer & error envelope](tickets/0009-api-abstraction-layer.md) — **thin proxy**: routes ~1:1 with Xero through one server-side wrapper (single-flight refresh, tenant header, 401→refresh+retry-once, `paginate()`), client (React Query) owns 429/5xx backoff + GET de-dupe. Uniform error envelope `{error:{code,message,retryAfter?,fields?}}`. Routes: `/auth/*`, `/projects`, `/projects/{id}/tasks`, `/me`, composed **`/week?from&to` (full scan, ≤5 concurrent)**, flat `/timeentries` POST/PUT/DELETE (projectId in payload). Tokens never reach browser. **Wrinkle:** no global time list → week loader fans out per project (full-scan chosen).
 - [Assemble the ARCHITECTURE.md build plan + reference snippets](tickets/0010-assemble-architecture-plan.md) — **destination reached**: synthesised all decisions into [`ARCHITECTURE.md`](../../ARCHITECTURE.md) — scope, domain model, stack, OAuth/token strategy, API layer, grid UX spec, phased roadmap, and both reference snippets (token-refresh helper; time-entry write wrapper).
+- [Decide: offline / draft edit behaviour (optional, Phase 4)](tickets/0011-offline-draft-support.md) — **auto-retry transient, in-memory**: failed writes enter a `pending` Cell state and auto-retry with backoff (honoring `Retry-After`), → `saved` or fall to `error`; React-Query-mutation-only, no durable queue (a reload while pending drops the edit). Full offline week composition ruled out of scope.
 
 ## Not yet specified
 
@@ -75,3 +76,4 @@ Reaching the destination = every decision below is made and the assembled plan e
 - **Building / implementing the actual app** — the destination is the *plan*; implementation is a
   separate hand-off effort.
 - **Non-Projects Xero APIs** (invoicing, expenses, payroll, accounting) — out of the time-entry scope.
+- **Durable offline / full-week offline composition** — considered while resolving [offline behaviour](tickets/0011-offline-draft-support.md); ruled out. The chosen resilience is in-memory auto-retry only (no localStorage mutation queue, no cross-reload offline).
