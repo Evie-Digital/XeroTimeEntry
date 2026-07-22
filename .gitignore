@@ -11,6 +11,21 @@ tokens.json
 .next/
 dist/
 out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+
+# Next.js / Vercel
+.vercel
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
 # OS / editor
 .DS_Store
