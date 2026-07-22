@@ -27,35 +27,49 @@ export type XeroSession = {
 const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const EXPIRY_SKEW_MS = 90_000; // refresh ~90s before the access token expires
 
-// Module-level singleton state. Single-user app ⇒ exactly one session.
-let session: XeroSession | null = null;
-let refreshInFlight: Promise<XeroSession> | null = null;
+// Single-user app ⇒ exactly one session. It MUST be a true per-process
+// singleton: Next.js gives each route handler its own module instance (and dev
+// HMR reloads modules), so a bare module-level `let` is NOT shared between e.g.
+// /api/xero/callback (which sets it) and /api/xero/status (which reads it). We
+// therefore anchor the state on `globalThis`, the one object all module
+// instances in the process share. (Mocked tests happen to share a module graph,
+// so this bug only surfaces in the real runtime.)
+type SessionStore = {
+  session: XeroSession | null;
+  sessionId: string | null; // signed session-cookie id marking the authorized browser
+  refreshInFlight: Promise<XeroSession> | null;
+};
 
-// The signed session-cookie id that marks the currently-authorized browser.
-// Kept alongside the token session (not inside XeroSession, which mirrors the
-// ARCHITECTURE §8.A shape exactly) and cleared together with it.
-let sessionId: string | null = null;
+const globalRef = globalThis as unknown as {
+  __xeroSessionStore?: SessionStore;
+};
 
-export const getSession = (): XeroSession | null => session;
+const store: SessionStore = (globalRef.__xeroSessionStore ??= {
+  session: null,
+  sessionId: null,
+  refreshInFlight: null,
+});
+
+export const getSession = (): XeroSession | null => store.session;
 export const setSession = (s: XeroSession): void => {
-  session = s;
+  store.session = s;
 };
 export const clearSession = (): void => {
-  session = null;
-  sessionId = null;
-  refreshInFlight = null;
+  store.session = null;
+  store.sessionId = null;
+  store.refreshInFlight = null;
 };
 
-export const getSessionId = (): string | null => sessionId;
+export const getSessionId = (): string | null => store.sessionId;
 export const setSessionId = (id: string): void => {
-  sessionId = id;
+  store.sessionId = id;
 };
 
 /** Returns a valid access token, refreshing proactively if near expiry. */
 export async function getFreshAccessToken(): Promise<string> {
-  if (!session) throw new ReauthRequired("no session");
-  if (Date.now() < session.accessTokenExpiry - EXPIRY_SKEW_MS) {
-    return session.accessToken;
+  if (!store.session) throw new ReauthRequired("no session");
+  if (Date.now() < store.session.accessTokenExpiry - EXPIRY_SKEW_MS) {
+    return store.session.accessToken;
   }
   return (await refreshTokens()).accessToken;
 }
@@ -65,13 +79,13 @@ export async function getFreshAccessToken(): Promise<string> {
  * The rotated refresh token Xero returns is persisted (the old one discarded).
  */
 export function refreshTokens(): Promise<XeroSession> {
-  if (!session) return Promise.reject(new ReauthRequired("no session"));
-  if (refreshInFlight) return refreshInFlight;
-  const current = session;
-  refreshInFlight = doRefresh(current).finally(() => {
-    refreshInFlight = null;
+  if (!store.session) return Promise.reject(new ReauthRequired("no session"));
+  if (store.refreshInFlight) return store.refreshInFlight;
+  const current = store.session;
+  store.refreshInFlight = doRefresh(current).finally(() => {
+    store.refreshInFlight = null;
   });
-  return refreshInFlight;
+  return store.refreshInFlight;
 }
 
 async function doRefresh(current: XeroSession): Promise<XeroSession> {
@@ -103,11 +117,11 @@ async function doRefresh(current: XeroSession): Promise<XeroSession> {
   };
 
   // Xero ROTATES the refresh token every use — persist the new one, drop the old.
-  session = {
+  store.session = {
     ...current,
     accessToken: tok.access_token,
     refreshToken: tok.refresh_token,
     accessTokenExpiry: Date.now() + tok.expires_in * 1000,
   };
-  return session;
+  return store.session;
 }
