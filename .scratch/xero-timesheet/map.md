@@ -45,17 +45,12 @@ Reaching the destination = every decision below is made and the assembled plan e
 - [Research: Xero API rate limits, 429 handling, pagination & active-filtering](tickets/0003-xero-limits-pagination.md) — 60/min + 5k/day + 5 concurrent per tenant; 429 sends `Retry-After` + `X-*-Remaining` headers; `page`/`pageSize` (max 500) with a `pagination` object; active = `states=INPROGRESS` for projects, client-side `status` filter for tasks; 5–15 min cache TTL.
 - [Decide: grid cell ↔ Xero time-entry domain model](tickets/0005-grid-entry-model.md) — **one Entry per Cell**; a **Slot** `(projectId,taskId,localDate)` holds ≤1 Entry; POST/PUT/DELETE map to empty/edit/clear; canonical unit **integer minutes**; **pure calendar dates, never zone-convert** (`dateUtc=<localDate>T00:00:00Z`, bucket on the UTC date substring); optional per-Cell note; 2+-entry Slots render read-only `conflict`, invoiced entries read-only; blank Rows/Slots are drafts (nothing POSTed until a value).
 - [Decide: local encrypted token storage & auto-refresh scheme](tickets/0006-token-storage.md) — **pivoted to NO persistence**: refresh/access tokens held in **server-process memory only**, discarded on process stop (⇒ ~one Xero login/week) — dissolves the encryption-at-rest problem. Only persisted secret is the app **client secret** in `.env.local`. Silent refresh = proactive (near-expiry) + reactive (401 retry once), rotating refresh token overwritten in memory, **single-flight** to avoid concurrent-refresh races; refresh failure → clear + re-auth. Browser↔server via a minimal httpOnly session cookie.
+- [Decide: client caching, active-filtering & recent/frequent prefill](tickets/0007-caching-prefill.md) — **React Query + localStorage** in the browser; active projects + per-project active tasks cached ~10 min stale-while-revalidate (+ manual refresh); the week's entries fetched per-week and invalidated on every write; active = `states=INPROGRESS` (projects) + client-side `status==='ACTIVE'` (tasks); `userId`/`tenantId` in server session memory. **Prefill = copy last week (A+B)**: seed rows from last week's Xero entries, augmented by a localStorage recent-rows set; **no usage ranking** (plain typeahead).
 
 ## Not yet specified
 
 <!-- in-scope fog, too blurry to ticket yet; graduates as the frontier advances -->
 
-- **Offline / draft support (Phase 4, optional).** The grid-model ticket now defines a "draft" (a
-  Row/Slot with no POSTed Entry yet). What remains foggy is the *offline* dimension — persisting
-  dirty edits while disconnected and replaying them on reconnect — which still hangs on the client
-  caching model (caching ticket, 0007). Sharpens once 0007 lands.
-- **"Frequent projects/tasks" ranking.** The exact recency/frequency algorithm and how many to
-  prefill. Depends on the prefill decision inside the caching ticket.
 - **Exact granular-scope token names.** Since app registration happens after 2 Mar 2026, the app
   uses Xero's new granular scopes; the precise Projects granular token strings must be read off the
   live Scopes / Granular-Scopes FAQ when registering. Sharpens into the app-registration task.
