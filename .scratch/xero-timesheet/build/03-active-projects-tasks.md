@@ -2,8 +2,8 @@
 id: build-03
 title: "Build: active projects & tasks (routes + cache + picker)"
 mode: AFK
-status: open
-assignee:
+status: closed
+assignee: implement-orchestrator
 labels: [ready-for-agent]
 blocked_by: [build-02]
 blocks: [build-04]

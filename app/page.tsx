@@ -1,4 +1,5 @@
 import { AuthStatus } from "./components/AuthStatus";
+import { ProjectTaskPicker } from "./components/ProjectTaskPicker";
 
 export default function Home() {
   return (
@@ -10,6 +11,9 @@ export default function Home() {
       </p>
       <div className="rounded border border-black/10 p-4 text-sm dark:border-white/15">
         <AuthStatus />
+      </div>
+      <div className="rounded border border-black/10 p-4 text-sm dark:border-white/15">
+        <ProjectTaskPicker />
       </div>
     </main>
   );
