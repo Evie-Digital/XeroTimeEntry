@@ -57,6 +57,73 @@ export async function createTimeEntry(entry: NewTimeEntry) {
   return res.json();
 }
 
-// #06 will add, same wrapper shape:
-//   PUT    /Projects/{projectId}/Time/{timeEntryId}   (full-replace body → 204)
-//   DELETE /Projects/{projectId}/Time/{timeEntryId}   (→ 204, only while ACTIVE)
+/** A full-replace edit of an existing Entry (§8.B). Carries EVERY field Xero
+ *  needs — a PUT is a full replace, not a patch — so the caller passes the
+ *  Entry's existing `taskId`/`dateUtc`/`description` back verbatim, changing
+ *  only what the Cell edited (typically `duration`). */
+export type UpdateTimeEntry = {
+  projectId: string;
+  timeEntryId: string;
+  taskId: string;
+  dateUtc: string; // carried verbatim from the existing Entry (§2)
+  duration: number; // integer minutes, 1..59940
+  description?: string;
+};
+
+/**
+ * `PUT /Projects/{projectId}/Time/{timeEntryId}` — full-replace an existing
+ * Entry for the session's `userId` (§4). Xero returns 204 (no body). Errors
+ * propagate as the taxonomy types (429→rate_limited, 400→validation,
+ * else→upstream) for `withErrorEnvelope`.
+ */
+export async function updateTimeEntry(entry: UpdateTimeEntry): Promise<void> {
+  const s = getSession();
+  if (!s) throw new ReauthRequired("no session");
+
+  const res = await xeroFetch(
+    `/Projects/${entry.projectId}/Time/${entry.timeEntryId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        userId: s.userId, // injected server-side, same as create
+        taskId: entry.taskId,
+        dateUtc: entry.dateUtc,
+        duration: entry.duration,
+        ...(entry.description ? { description: entry.description } : {}),
+      }),
+    },
+  );
+
+  if (res.status === 429) {
+    throw new RateLimited(Number(res.headers.get("Retry-After") ?? 1));
+  }
+  if (res.status === 400) {
+    throw new XeroValidation(await res.json().catch(() => null));
+  }
+  if (!res.ok) throw new UpstreamError(`Xero ${res.status}`);
+  // 204 No Content — nothing to return.
+}
+
+/**
+ * `DELETE /Projects/{projectId}/Time/{timeEntryId}` — remove an Entry (only
+ * while `status === "ACTIVE"`; the grid never offers delete on a locked Cell).
+ * Xero returns 204. 429→rate_limited, else→upstream.
+ */
+export async function deleteTimeEntry(params: {
+  projectId: string;
+  timeEntryId: string;
+}): Promise<void> {
+  const s = getSession();
+  if (!s) throw new ReauthRequired("no session");
+
+  const res = await xeroFetch(
+    `/Projects/${params.projectId}/Time/${params.timeEntryId}`,
+    { method: "DELETE" },
+  );
+
+  if (res.status === 429) {
+    throw new RateLimited(Number(res.headers.get("Retry-After") ?? 1));
+  }
+  if (!res.ok) throw new UpstreamError(`Xero ${res.status}`);
+  // 204 No Content.
+}

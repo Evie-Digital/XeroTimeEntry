@@ -213,4 +213,19 @@ export const xeroHandlers = [
       );
     },
   ),
+
+  // PUT /Projects/{id}/Time/{timeEntryId} — full-replace edit (slice #06).
+  // Xero returns 204 No Content. Tests that inspect the body or force an error
+  // override this per-case via `server.use(...)`.
+  http.put(
+    "https://api.xero.com/projects.xro/2.0/Projects/:projectId/Time/:timeEntryId",
+    () => new HttpResponse(null, { status: 204 }),
+  ),
+
+  // DELETE /Projects/{id}/Time/{timeEntryId} — remove an ACTIVE entry (#06).
+  // Xero returns 204 No Content.
+  http.delete(
+    "https://api.xero.com/projects.xro/2.0/Projects/:projectId/Time/:timeEntryId",
+    () => new HttpResponse(null, { status: 204 }),
+  ),
 ];

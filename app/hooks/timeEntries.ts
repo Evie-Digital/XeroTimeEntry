@@ -30,16 +30,7 @@ async function postTimeEntry(vars: CreateTimeEntryVars): Promise<WeekEntry> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(vars),
   });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as {
-      error?: { code?: string; message?: string; retryAfter?: number };
-    } | null;
-    throw new ApiError(
-      body?.error?.code ?? "upstream",
-      body?.error?.message ?? `Request failed: ${res.status}`,
-      body?.error?.retryAfter,
-    );
-  }
+  if (!res.ok) throw await toApiError(res);
   return res.json() as Promise<WeekEntry>;
 }
 
@@ -52,6 +43,81 @@ export function useCreateTimeEntry(from: string, to: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: postTimeEntry,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: weekKey(from, to) }),
+  });
+}
+
+/** The full-replace edit payload (matches `PUT /api/timeentries/{id}` body +
+ *  the id in the path). `taskId`/`dateUtc`/`description` are carried over from
+ *  the existing Entry; the Cell changes `duration`. */
+export type UpdateTimeEntryVars = {
+  timeEntryId: string;
+  projectId: string;
+  taskId: string;
+  dateUtc: string;
+  duration: number;
+  description?: string;
+};
+
+/** PUT the full-replace edit (204, no body), mapping a non-ok envelope to
+ *  the shared `ApiError`. */
+async function putTimeEntry(vars: UpdateTimeEntryVars): Promise<void> {
+  const { timeEntryId, ...body } = vars;
+  const res = await fetch(`/api/timeentries/${timeEntryId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await toApiError(res);
+}
+
+/** The delete payload — the id (path) + its projectId (query). */
+export type DeleteTimeEntryVars = { timeEntryId: string; projectId: string };
+
+/** DELETE the entry (204, no body), mapping a non-ok envelope to `ApiError`. */
+async function deleteTimeEntryReq(vars: DeleteTimeEntryVars): Promise<void> {
+  const res = await fetch(
+    `/api/timeentries/${vars.timeEntryId}?projectId=${encodeURIComponent(vars.projectId)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw await toApiError(res);
+}
+
+/** Parse a non-ok API error envelope into the shared `ApiError`. */
+async function toApiError(res: Response): Promise<ApiError> {
+  const body = (await res.json().catch(() => null)) as {
+    error?: { code?: string; message?: string; retryAfter?: number };
+  } | null;
+  return new ApiError(
+    body?.error?.code ?? "upstream",
+    body?.error?.message ?? `Request failed: ${res.status}`,
+    body?.error?.retryAfter,
+  );
+}
+
+/**
+ * Full-replace edit mutation, scoped to the visible week window so success
+ * invalidates exactly that week's query (the grid refetches and re-derives the
+ * Cell + totals). Same shape as `useCreateTimeEntry`.
+ */
+export function useUpdateTimeEntry(from: string, to: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: putTimeEntry,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: weekKey(from, to) }),
+  });
+}
+
+/**
+ * Delete mutation, scoped to the visible week window so success invalidates
+ * that week's query (the Cell re-derives as `empty`, totals drop).
+ */
+export function useDeleteTimeEntry(from: string, to: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteTimeEntryReq,
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: weekKey(from, to) }),
   });

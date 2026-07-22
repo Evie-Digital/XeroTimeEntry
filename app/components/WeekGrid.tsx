@@ -15,11 +15,15 @@
 // (projectId, taskId, date, entries, minutes, state) and is addressable by
 // `data-testid="cell-{pid}-{tid}-{date}"` with the live state on `data-state`.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWeek } from "../hooks/week";
 import { ApiError } from "../hooks/lists";
-import { useCreateTimeEntry } from "../hooks/timeEntries";
+import {
+  useCreateTimeEntry,
+  useDeleteTimeEntry,
+  useUpdateTimeEntry,
+} from "../hooks/timeEntries";
 import { buildWeek, formatHours } from "@/lib/week/grid";
 import { dayLabel, slotDateUtc, todayIso, weekDates } from "@/lib/week/dates";
 import { parseDuration } from "@/lib/week/duration";
@@ -171,13 +175,25 @@ export function WeekGrid({ from, to, today }: WeekGridProps) {
 }
 
 /**
- * One day Cell. `locked`/`conflict`/`saved` render read-only (edit is #06); an
- * `empty` Slot is the editable surface (slice #05 create). Typing enters an
- * `editing` state, Enter parses the input and — if valid & non-zero — POSTs via
- * the create mutation: `editing → saving → saved` (the week refetch brings the
- * new Entry back into this Slot). Invalid input → `error`, nothing sent; a
- * failed POST rolls back to `empty` and shows `error`. #07 layers full keyboard
- * nav on top of this same machinery.
+ * One day Cell. `locked`/`conflict` render read-only; `empty` and `saved` are
+ * the editable surfaces. A per-Cell phase machine (`idle | editing | saving |
+ * error`) is layered over the derived Slot state:
+ *
+ *  - **empty** (slice #05 create): always shows an input. Typing → `editing`;
+ *    Enter parses and, if valid & non-zero, POSTs → `saving → saved`.
+ *  - **saved** (slice #06 edit/delete): at rest shows the hours as a focusable
+ *    value; a keystroke distinguishes the two writes —
+ *      • a digit / `.` / `:` opens the input seeded with that char (`editing`);
+ *        Enter issues a full-replace **PUT** (carrying the Entry's existing
+ *        taskId/dateUtc/description, changing duration) → `saving → saved`.
+ *        Clearing the input to empty + Enter falls through to a **DELETE**.
+ *      • Backspace / Delete (not while mid-edit-typing) issues a **DELETE** →
+ *        the Slot re-derives `empty`.
+ *
+ * `locked`/`conflict` never enter the phase machine (no input, no keydown write)
+ * so they can neither PUT nor DELETE. On any write failure the Cell rolls back
+ * and shows `error`. #07 layers full keyboard nav on this same machinery; #08
+ * reuses the same commit path for descriptions.
  */
 function GridCell({
   slot,
@@ -190,18 +206,22 @@ function GridCell({
   from: string;
   to: string;
 }) {
-  const editable = slot.state === "empty";
+  // `empty` and `saved` are writable; `locked`/`conflict` stay read-only.
+  const editable = slot.state === "empty" || slot.state === "saved";
   const create = useCreateTimeEntry(from, to);
+  const update = useUpdateTimeEntry(from, to);
+  const del = useDeleteTimeEntry(from, to);
 
   // Transient per-Cell write state, layered over the derived Slot state.
   type Phase = "idle" | "editing" | "saving" | "error";
   const [phase, setPhase] = useState<Phase>("idle");
   const [value, setValue] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // When the Entry lands (create → invalidate → refetch), the Slot is no longer
-  // empty — leave editing mode so it renders `saved`. No-op for cells that were
-  // never edited (setState bails on unchanged primitives).
+  // When a create lands (empty → saved) the effect below leaves editing mode.
+  // Edit/delete keep `slot.state === "saved"` throughout, so those reset via
+  // their mutation callbacks instead (see commit/remove).
   useEffect(() => {
     if (slot.state !== "empty") {
       setPhase("idle");
@@ -210,11 +230,49 @@ function GridCell({
     }
   }, [slot.state]);
 
-  const displayState: CellState = editable
-    ? phase === "idle"
-      ? "empty"
-      : phase
-    : slot.state;
+  // Focus the input when a `saved` Cell transitions into edit mode (so the
+  // seed keystroke's follow-ups land in it). Empty Cells own their own focus.
+  useEffect(() => {
+    if (phase === "editing" && slot.state === "saved") {
+      const el = inputRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    }
+  }, [phase, slot.state]);
+
+  const displayState: CellState = phase === "idle" ? slot.state : phase;
+
+  function resetToIdle() {
+    setPhase("idle");
+    setValue("");
+    setErrorMsg(null);
+  }
+
+  function saveErr(err: unknown): string {
+    return err instanceof ApiError && err.code === "validation"
+      ? "Xero rejected this entry."
+      : "Couldn't save — try again.";
+  }
+
+  /** DELETE the saved Entry (Backspace/Delete, or clearing the input). */
+  function remove() {
+    const entry = slot.entries[0];
+    if (!entry) return;
+    setPhase("saving");
+    setErrorMsg(null);
+    del.mutate(
+      { timeEntryId: entry.timeEntryId, projectId: slot.projectId },
+      {
+        onSuccess: resetToIdle, // refetch re-derives the Slot as `empty`
+        onError: () => {
+          setPhase("error");
+          setErrorMsg("Couldn't delete — try again.");
+        },
+      },
+    );
+  }
 
   function commit() {
     const minutes = parseDuration(value);
@@ -223,10 +281,39 @@ function GridCell({
       setErrorMsg("Enter hours like 1.5, 1:30, 90m or :45.");
       return;
     }
-    if (minutes === 0) {
-      setPhase("idle"); // empty/0 in an empty Cell — nothing to create
-      setValue("");
+
+    if (slot.state === "saved") {
+      // Editing an existing Entry: 0/empty ⇒ delete, otherwise full-replace PUT.
+      const entry = slot.entries[0];
+      if (minutes === 0) {
+        remove();
+        return;
+      }
+      setPhase("saving");
       setErrorMsg(null);
+      update.mutate(
+        {
+          timeEntryId: entry.timeEntryId,
+          projectId: slot.projectId,
+          taskId: entry.taskId, // carried verbatim (full-replace)
+          dateUtc: entry.dateUtc,
+          duration: minutes, // the only edited field
+          description: entry.description || undefined,
+        },
+        {
+          onSuccess: resetToIdle, // refetch re-derives the updated Slot
+          onError: (err) => {
+            setPhase("error");
+            setErrorMsg(saveErr(err));
+          },
+        },
+      );
+      return;
+    }
+
+    // Empty Slot: create (slice #05).
+    if (minutes === 0) {
+      resetToIdle(); // empty/0 in an empty Cell — nothing to create
       return;
     }
     setPhase("saving");
@@ -241,11 +328,7 @@ function GridCell({
       {
         onError: (err) => {
           setPhase("error"); // roll back to empty + surface the error
-          setErrorMsg(
-            err instanceof ApiError && err.code === "validation"
-              ? "Xero rejected this entry."
-              : "Couldn't save — try again.",
-          );
+          setErrorMsg(saveErr(err));
         },
         // onSuccess: the week refetch re-derives this Slot as `saved`; the
         // effect above then leaves editing mode.
@@ -253,7 +336,25 @@ function GridCell({
     );
   }
 
+  /** Keydown on a resting `saved` value: a digit/`.`/`:` opens the editor
+   *  (seeded with that char); Backspace/Delete removes the Entry. */
+  function onSavedKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Backspace" || e.key === "Delete") {
+      e.preventDefault();
+      remove();
+      return;
+    }
+    if (/^[0-9.:]$/.test(e.key)) {
+      e.preventDefault();
+      setValue(e.key);
+      setPhase("editing");
+      setErrorMsg(null);
+    }
+  }
+
   const hours = slot.minutes > 0 ? formatHours(slot.minutes) : "";
+  const showInput = slot.state === "empty" || phase !== "idle";
+  const showSavedValue = slot.state === "saved" && phase === "idle";
 
   return (
     <td
@@ -264,21 +365,31 @@ function GridCell({
         isToday ? "bg-black/5 dark:bg-white/10" : ""
       } ${slot.state === "locked" ? "opacity-70" : ""}`}
     >
-      {editable ? (
+      {showInput ? (
         <>
           <input
+            ref={inputRef}
             aria-label={`Log time for ${slot.date}`}
             value={value}
             disabled={phase === "saving"}
             onChange={(e) => {
               setValue(e.target.value);
-              setPhase(e.target.value === "" ? "idle" : "editing");
+              // For a saved Cell an emptied input stays in edit mode (Enter then
+              // deletes); an empty Cell drops back to idle.
+              setPhase(
+                e.target.value === "" && slot.state === "empty"
+                  ? "idle"
+                  : "editing",
+              );
               if (errorMsg) setErrorMsg(null);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
                 commit();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                resetToIdle(); // cancel edit — revert to the derived state
               }
             }}
             className="w-14 bg-transparent text-center tabular-nums outline-none focus:ring-1 focus:ring-black/20 dark:focus:ring-white/20"
@@ -294,6 +405,16 @@ function GridCell({
             </span>
           )}
         </>
+      ) : showSavedValue ? (
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Edit time for ${slot.date}`}
+          onKeyDown={onSavedKeyDown}
+          className="cursor-text outline-none focus:ring-1 focus:ring-black/20 dark:focus:ring-white/20"
+        >
+          {hours}
+        </span>
       ) : (
         <>
           <span>{hours}</span>
