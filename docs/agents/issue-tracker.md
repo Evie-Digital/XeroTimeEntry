@@ -9,7 +9,10 @@ There is no remote issue tracker. The convention below reflects what is already 
 - One feature/effort per directory: `.scratch/<feature-slug>/`
 - The spec is `.scratch/<feature-slug>/spec-<slug>.md` (a `spec*.md` file in the feature directory)
 - Implementation tickets are one file per ticket at `.scratch/<feature-slug>/tickets/<NNNN>-<slug>.md`,
-  numbered from `0001` — never a single combined tickets file
+  numbered from `0001` — never a single combined tickets file. **Exception:** when a feature also has a
+  `/wayfinder` decision map (whose closed decision tickets already occupy `tickets/`), the derived
+  **implementation build slices** live under `.scratch/<feature-slug>/build/<NN>-<slug>.md` (numbered
+  from `01`) to keep the build backlog separate from the decision tickets.
 - Each ticket carries **YAML frontmatter** at the top:
   ```yaml
   ---
