@@ -2,8 +2,8 @@
 id: build-02
 title: "Build: Xero auth spine + identity"
 mode: HITL
-status: open
-assignee:
+status: closed
+assignee: implement-orchestrator
 labels: [ready-for-human]
 blocked_by: [build-01]
 blocks: [build-03]

@@ -2,8 +2,8 @@
 id: build-01
 title: "Build: walking skeleton (Next.js + tooling + test harness)"
 mode: AFK
-status: open
-assignee:
+status: closed
+assignee: implement-orchestrator
 labels: [ready-for-agent]
 blocked_by: []
 blocks: [build-02]

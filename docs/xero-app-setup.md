@@ -22,12 +22,15 @@ Click **New app** and fill in:
 |---|---|
 | **App name** | Anything, e.g. `Fast Time Entry` |
 | **Integration type** | **Web app** ← important: this is the confidential (client-secret) flow, not PKCE |
-| **Company or application URL** | Any valid URL, e.g. `http://localhost:3000` |
+| **Company or application URL** | A **real, reachable `https://` URL** — e.g. `https://evie.digital` or any site/GitHub repo you own. This is just metadata; it does NOT need to be where the app runs. |
 | **Redirect URI** | `http://localhost:3000/api/xero/callback` |
 
-> ⚠️ **Redirect URI must match exactly.** Xero allows `http://localhost` for development, but **not**
-> `http://127.0.0.1`. No wildcards. It must be character-for-character the same as above (scheme, host,
-> port `3000`, and path). If you run the app on a different port later, add that redirect URI too.
+> ⚠️ **Two different URL fields, two different rules — don't mix them up:**
+> - **Company or application URL** must be a **reachable `https://`** address. It's only a public link
+>   to your site; `http://localhost` is rejected here. Put your own domain or a GitHub repo URL.
+> - **Redirect URI** is the one the OAuth flow actually uses. Here `http://localhost:3000/...` **is**
+>   allowed (but **not** `http://127.0.0.1`). No wildcards, no trailing slash; it must match the app's
+>   route character-for-character. If you later run on a different port, add that redirect URI too.
 
 Tick the terms checkbox and click **Create app**.
 
