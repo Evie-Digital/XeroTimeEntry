@@ -2,7 +2,7 @@
 id: 0002
 title: "Research: Xero OAuth 2.0 flow for a local single-user app"
 type: research
-status: in-progress
+status: closed
 assignee: gavin
 blocked_by: []
 blocks: [0006, 0009, 0010]
@@ -30,3 +30,24 @@ What is the correct, current Xero OAuth 2.0 setup for a **single-user app runnin
 reference token-refresh snippet (0010).
 
 **Capture findings to:** `research/xero-oauth-local.md`
+
+## Resolution
+
+Findings: [`research/xero-oauth-local.md`](../research/xero-oauth-local.md).
+
+- **Flow:** standard **Authorization Code + confidential client secret** (Next.js server holds
+  the secret, server-only). PKCE is required only for native apps that can't hold a secret — not
+  needed here (optional hardening only).
+- **Scopes:** request `openid profile email projects offline_access`. `projects` = read+write
+  (covers time-entry write); `offline_access` returns the refresh token; **`email` is required**
+  for userId resolution (0004). Minimal = `projects offline_access`.
+- **Redirect URI:** `http://localhost/` allowed for dev (NOT `http://127.0.0.1`); https otherwise;
+  no wildcards; exact match incl. port → pin e.g. `http://localhost:3000/api/xero/callback`.
+- **Tokens:** access = 30 min; refresh = 60-day inactivity; **refresh tokens ROTATE every use** —
+  persist the new one atomically, discard old; 30-min grace window to retry with the old token.
+  Idle > 60 days → re-consent (schedule periodic refresh to keep alive).
+- **Tenant:** `GET https://api.xero.com/connections` → `tenantId`; every Projects call needs BOTH
+  `Authorization: Bearer` AND `Xero-tenant-id` headers. Resolve+cache `tenantId` once.
+- ⚠️ **Granular-scopes caveat (post-2 Mar 2026):** a newly registered app uses Xero's new granular
+  scopes — verify the exact Projects granular token names on the live Scopes/Granular-Scopes FAQ
+  at build time. Carried into the API-layer (0009) and app-registration task.

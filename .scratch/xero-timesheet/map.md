@@ -38,7 +38,10 @@ Reaching the destination = every decision below is made and the assembled plan e
 
 <!-- one line per closed ticket: gist + link; zoom the link for detail -->
 
-_(none yet — charting session)_
+- [Research: Xero Projects time-entry CRUD support & payload shapes](tickets/0001-xero-timeentry-crud.md) — **native CRUD IS supported** (no delete-and-recreate). Endpoint is `/Projects/{projectId}/Time` (not `/timeentries`): POST/GET/PUT/DELETE; create needs `userId`+`taskId`+`dateUtc`+`duration` (min, 1–59940); update/delete only while `ACTIVE` (rejected once `INVOICED`/`LOCKED`) → grid shows invoiced cells read-only.
+- [Research: Xero OAuth 2.0 flow for a local single-user app](tickets/0002-xero-oauth-local.md) — use **standard Auth Code + confidential secret** (server-side; PKCE only for native); scopes `openid profile email projects offline_access` (`projects`=read+write, `email` needed for userId match); redirect `http://localhost:<port>/...` OK (not 127.0.0.1), exact match, no wildcards; access 30 min / refresh 60-day and **rotates every use** (persist atomically, 30-min grace); every call needs `Authorization` + `Xero-tenant-id` from `GET /connections`.
+- [Research: userId resolution via projectsusers & connections](tickets/0004-xero-userid-resolution.md) — every POST's `userId` comes from `GET /projectsusers` (items of `{userId,name,email}`, nothing marks the caller); resolve "me" by matching the OpenID `id_token` **email** claim; `userId` is a stable per-tenant UUID → cache by `(tenantId,email)`; guard the "not a Projects user in this tenant" no-match case.
+- [Research: Xero API rate limits, 429 handling, pagination & active-filtering](tickets/0003-xero-limits-pagination.md) — 60/min + 5k/day + 5 concurrent per tenant; 429 sends `Retry-After` + `X-*-Remaining` headers; `page`/`pageSize` (max 500) with a `pagination` object; active = `states=INPROGRESS` for projects, client-side `status` filter for tasks; 5–15 min cache TTL.
 
 ## Not yet specified
 
@@ -49,6 +52,9 @@ _(none yet — charting session)_
   model (caching ticket) land — both decide what a "draft" even is.
 - **"Frequent projects/tasks" ranking.** The exact recency/frequency algorithm and how many to
   prefill. Depends on the prefill decision inside the caching ticket.
+- **Exact granular-scope token names.** Since app registration happens after 2 Mar 2026, the app
+  uses Xero's new granular scopes; the precise Projects granular token strings must be read off the
+  live Scopes / Granular-Scopes FAQ when registering. Sharpens into the app-registration task.
 - **Local app packaging / launch ergonomics.** Whether it's `npm run dev`, a packaged binary, or a
   menubar launcher, and how the encrypted-token passphrase is entered at start. Revisit once the
   token-storage and API-layer tickets are concrete.

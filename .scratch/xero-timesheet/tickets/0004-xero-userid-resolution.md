@@ -2,7 +2,7 @@
 id: 0004
 title: "Research: userId resolution via projectsusers & connections"
 type: research
-status: in-progress
+status: closed
 assignee: gavin
 blocked_by: []
 blocks: [0007, 0010]
@@ -24,3 +24,19 @@ correct one?
 strategy (0007) and the reference write-wrapper (0010) both need the resolution approach settled.
 
 **Capture findings to:** `research/xero-userid-resolution.md`
+
+## Resolution
+
+Findings: [`research/xero-userid-resolution.md`](../research/xero-userid-resolution.md).
+
+- **Source of `userId`:** `GET /projectsusers` (Projects API), NOT the OAuth identity. Returns a
+  paginated `{ pagination, items[] }` where each item is `{ userId (uuid), name, email }` — the ONLY
+  fields. **Nothing marks which item is the caller.**
+- **Resolving "me":** get the caller's email from the **OpenID `email` claim in the `id_token`**
+  (needs scopes `openid email profile`), then **match by email (case-insensitive)** against
+  `/projectsusers`. `GET /connections` yields tenant info only (no email); the OIDC `xero_userid` is
+  a global login id, NOT the Projects `userId` — can't join directly.
+- **Stability/caching:** `userId` is a stable **per-tenant** UUID → resolve once, cache keyed by
+  `(tenantId, email)`. Never share across tenants; re-resolve on a failed lookup.
+- **Guard:** the authenticated person may not be a project user in the tenant (no Projects licence)
+  → email won't match → cannot post time. Surface a clear error. Paginate defensively (pageSize ≤ 500).
