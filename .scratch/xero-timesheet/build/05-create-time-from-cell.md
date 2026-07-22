@@ -2,8 +2,8 @@
 id: build-05
 title: "Build: create time from a cell (type → POST → saved)"
 mode: AFK
-status: open
-assignee:
+status: closed
+assignee: implement-orchestrator
 labels: [ready-for-agent]
 blocked_by: [build-04]
 blocks: [build-06, build-07]

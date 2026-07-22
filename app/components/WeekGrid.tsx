@@ -1,23 +1,29 @@
 "use client";
 
-// The read-only weekly grid (ARCHITECTURE §2/§6). Rows = distinct
-// (projectId, taskId) present in the week, columns = Mon–Sun, per-row Total,
-// a Daily-total footer + grand total, today highlighted. Durations show as
-// decimal hours. Cells render three read-only states this slice: `saved`,
-// `locked` (invoiced/non-ACTIVE Entry) and `conflict` (2+ Entries in a Slot,
-// summed with a ⋯ marker). Editing/keyboard arrive in #05–#07.
+// The weekly grid (ARCHITECTURE §2/§6). Rows = distinct (projectId, taskId)
+// present in the week, columns = Mon–Sun, per-row Total, a Daily-total footer +
+// grand total, today highlighted. Durations show as decimal hours. Read-only
+// Cells: `saved`, `locked` (invoiced/non-ACTIVE Entry) and `conflict` (2+
+// Entries in a Slot, summed with a ⋯ marker).
 //
-// FOR THE WRITE SLICES (#05/#06): each day <td> is a self-contained `<GridCell>`
-// carrying its full `Slot` (projectId, taskId, date, entries, minutes, state)
-// via `data-*` attributes. A `saved`/`empty` Slot is the editable surface —
-// swap the read-only content for an input keyed off `slot`. `locked`/`conflict`
-// stay read-only. Cells are addressable by `data-testid="cell-{pid}-{tid}-{date}"`.
+// SLICE #05 (create): an `empty` Slot is the editable surface — it renders an
+// input; typing → `editing`, Enter → parse → POST → `saving` → `saved` (see
+// GridCell). #06 makes `saved` Cells editable (PUT/DELETE); #07 adds keyboard
+// nav — both reuse GridCell's phase machine + the `useCreateTimeEntry` shape.
+//
+// Each day <td> is a self-contained `<GridCell>` carrying its full `Slot`
+// (projectId, taskId, date, entries, minutes, state) and is addressable by
+// `data-testid="cell-{pid}-{tid}-{date}"` with the live state on `data-state`.
 
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWeek } from "../hooks/week";
+import { ApiError } from "../hooks/lists";
+import { useCreateTimeEntry } from "../hooks/timeEntries";
 import { buildWeek, formatHours } from "@/lib/week/grid";
-import { dayLabel, todayIso, weekDates } from "@/lib/week/dates";
-import type { Slot } from "@/lib/week/types";
+import { dayLabel, slotDateUtc, todayIso, weekDates } from "@/lib/week/dates";
+import { parseDuration } from "@/lib/week/duration";
+import type { CellState, Slot } from "@/lib/week/types";
 
 type Status = { authenticated: boolean };
 
@@ -120,6 +126,8 @@ export function WeekGrid({ from, to, today }: WeekGridProps) {
                     key={slot.date}
                     slot={slot}
                     isToday={slot.date === todayDate}
+                    from={from}
+                    to={to}
                   />
                 ))}
                 <td
@@ -162,33 +170,152 @@ export function WeekGrid({ from, to, today }: WeekGridProps) {
   );
 }
 
-/** One day Cell. Read-only in this slice; carries the full Slot for #05/#06. */
-function GridCell({ slot, isToday }: { slot: Slot; isToday: boolean }) {
+/**
+ * One day Cell. `locked`/`conflict`/`saved` render read-only (edit is #06); an
+ * `empty` Slot is the editable surface (slice #05 create). Typing enters an
+ * `editing` state, Enter parses the input and — if valid & non-zero — POSTs via
+ * the create mutation: `editing → saving → saved` (the week refetch brings the
+ * new Entry back into this Slot). Invalid input → `error`, nothing sent; a
+ * failed POST rolls back to `empty` and shows `error`. #07 layers full keyboard
+ * nav on top of this same machinery.
+ */
+function GridCell({
+  slot,
+  isToday,
+  from,
+  to,
+}: {
+  slot: Slot;
+  isToday: boolean;
+  from: string;
+  to: string;
+}) {
+  const editable = slot.state === "empty";
+  const create = useCreateTimeEntry(from, to);
+
+  // Transient per-Cell write state, layered over the derived Slot state.
+  type Phase = "idle" | "editing" | "saving" | "error";
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [value, setValue] = useState("");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // When the Entry lands (create → invalidate → refetch), the Slot is no longer
+  // empty — leave editing mode so it renders `saved`. No-op for cells that were
+  // never edited (setState bails on unchanged primitives).
+  useEffect(() => {
+    if (slot.state !== "empty") {
+      setPhase("idle");
+      setValue("");
+      setErrorMsg(null);
+    }
+  }, [slot.state]);
+
+  const displayState: CellState = editable
+    ? phase === "idle"
+      ? "empty"
+      : phase
+    : slot.state;
+
+  function commit() {
+    const minutes = parseDuration(value);
+    if (minutes === null) {
+      setPhase("error"); // invalid — send nothing
+      setErrorMsg("Enter hours like 1.5, 1:30, 90m or :45.");
+      return;
+    }
+    if (minutes === 0) {
+      setPhase("idle"); // empty/0 in an empty Cell — nothing to create
+      setValue("");
+      setErrorMsg(null);
+      return;
+    }
+    setPhase("saving");
+    setErrorMsg(null);
+    create.mutate(
+      {
+        projectId: slot.projectId,
+        taskId: slot.taskId,
+        dateUtc: slotDateUtc(slot.date),
+        duration: minutes,
+      },
+      {
+        onError: (err) => {
+          setPhase("error"); // roll back to empty + surface the error
+          setErrorMsg(
+            err instanceof ApiError && err.code === "validation"
+              ? "Xero rejected this entry."
+              : "Couldn't save — try again.",
+          );
+        },
+        // onSuccess: the week refetch re-derives this Slot as `saved`; the
+        // effect above then leaves editing mode.
+      },
+    );
+  }
+
   const hours = slot.minutes > 0 ? formatHours(slot.minutes) : "";
 
   return (
     <td
       data-testid={`cell-${slot.projectId}-${slot.taskId}-${slot.date}`}
-      data-state={slot.state}
+      data-state={displayState}
       data-today={isToday ? "true" : undefined}
       className={`p-2 text-center tabular-nums ${
         isToday ? "bg-black/5 dark:bg-white/10" : ""
       } ${slot.state === "locked" ? "opacity-70" : ""}`}
     >
-      <span>{hours}</span>
-      {slot.state === "locked" && (
-        <span aria-label="locked" title="Invoiced — read-only" className="ml-1">
-          🔒
-        </span>
-      )}
-      {slot.state === "conflict" && (
-        <span
-          aria-label="conflict"
-          title="Multiple entries in Xero — read-only"
-          className="ml-1"
-        >
-          ⋯
-        </span>
+      {editable ? (
+        <>
+          <input
+            aria-label={`Log time for ${slot.date}`}
+            value={value}
+            disabled={phase === "saving"}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setPhase(e.target.value === "" ? "idle" : "editing");
+              if (errorMsg) setErrorMsg(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commit();
+              }
+            }}
+            className="w-14 bg-transparent text-center tabular-nums outline-none focus:ring-1 focus:ring-black/20 dark:focus:ring-white/20"
+          />
+          {phase === "error" && errorMsg && (
+            <span
+              role="alert"
+              title={errorMsg}
+              data-cell-error
+              className="ml-1 text-red-600 dark:text-red-400"
+            >
+              !
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <span>{hours}</span>
+          {slot.state === "locked" && (
+            <span
+              aria-label="locked"
+              title="Invoiced — read-only"
+              className="ml-1"
+            >
+              🔒
+            </span>
+          )}
+          {slot.state === "conflict" && (
+            <span
+              aria-label="conflict"
+              title="Multiple entries in Xero — read-only"
+              className="ml-1"
+            >
+              ⋯
+            </span>
+          )}
+        </>
       )}
     </td>
   );

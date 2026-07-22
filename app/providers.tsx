@@ -52,7 +52,19 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister, maxAge: CACHE_MAX_AGE_MS }}
+      persistOptions={{
+        persister,
+        maxAge: CACHE_MAX_AGE_MS,
+        // Persist ONLY the cached lists — never the week (ARCHITECTURE §6: the
+        // week is the live editing surface, fetched per-visit and invalidated
+        // on every write, so it must not warm-start from a stale localStorage
+        // snapshot). Keep the default success-only rule for everything else.
+        dehydrateOptions: {
+          shouldDehydrateQuery: (query) =>
+            query.state.status === "success" &&
+            !(Array.isArray(query.queryKey) && query.queryKey[0] === "week"),
+        },
+      }}
     >
       {children}
     </PersistQueryClientProvider>

@@ -191,4 +191,26 @@ export const xeroHandlers = [
       return paginatedJson(entries, new URL(request.url), 500);
     },
   ),
+
+  // POST /Projects/{id}/Time — create a time entry (slice #05). Echoes the body
+  // back as a created ACTIVE Entry (201). Tests that need to inspect the body or
+  // force a 400/429 override this per-case via `server.use(...)`.
+  http.post(
+    "https://api.xero.com/projects.xro/2.0/Projects/:projectId/Time",
+    async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(
+        {
+          timeEntryId: "te-created",
+          userId: body.userId,
+          taskId: body.taskId,
+          dateUtc: body.dateUtc,
+          duration: body.duration,
+          description: body.description ?? "",
+          status: "ACTIVE",
+        },
+        { status: 201 },
+      );
+    },
+  ),
 ];

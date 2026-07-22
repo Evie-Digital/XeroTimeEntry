@@ -31,10 +31,21 @@ export type WeekEntry = {
 };
 
 /**
- * A Cell's render state (ARCHITECTURE §2). This slice renders the read-only
- * subset; #05–#07 add `editing`/`saving`/`pending`/`error`.
+ * A Cell's render state (ARCHITECTURE §2). The read-only subset (`empty` /
+ * `saved` / `locked` / `conflict`) is DERIVED from a Slot's entries by
+ * `buildWeek`; the transient write states (`editing` / `saving` / `error`) are
+ * held per-Cell by the grid during a create/edit (slice #05 adds create; #06
+ * edit/delete and #07 keyboard reuse the same machinery). `pending`
+ * (auto-retry, Phase 4) lands later.
  */
-export type CellState = "empty" | "saved" | "locked" | "conflict";
+export type CellState =
+  | "empty"
+  | "saved"
+  | "locked"
+  | "conflict"
+  | "editing"
+  | "saving"
+  | "error";
 
 /**
  * The identity + contents of one grid cell: `(projectId, taskId, date)`.

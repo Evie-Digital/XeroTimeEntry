@@ -50,6 +50,17 @@ export function dayLabel(date: string): string {
   return `${weekday} ${d.getUTCDate()}`;
 }
 
+/**
+ * A Slot's pure calendar date → the Xero `dateUtc` write value: midnight UTC of
+ * that same date (ARCHITECTURE §2 — write `<localDate>T00:00:00Z`, read buckets
+ * off the verbatim date substring, so writes and reads never drift). Any full
+ * ISO string is accepted (only its date portion is used).
+ * `"2026-07-20"` → `"2026-07-20T00:00:00Z"`.
+ */
+export function slotDateUtc(date: string): string {
+  return `${datePortion(date)}T00:00:00Z`;
+}
+
 /** Integer minutes → decimal-hours display string. 90 → "1.5", 480 → "8", 0 → "0". */
 export function formatHours(minutes: number): string {
   const hours = minutes / 60;
