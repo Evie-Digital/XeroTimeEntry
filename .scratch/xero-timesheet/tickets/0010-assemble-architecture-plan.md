@@ -2,8 +2,8 @@
 id: 0010
 title: "Assemble the ARCHITECTURE.md build plan + reference snippets (terminal / destination)"
 type: task
-status: open
-assignee:
+status: closed
+assignee: gavin
 blocked_by: [0001, 0002, 0004, 0005, 0006, 0007, 0008, 0009]
 blocks: []
 ---
@@ -27,3 +27,20 @@ Assemble, drawing each section from its resolved ticket:
    write wrapper for `POST /timeentries` (from 0001 + 0004).
 
 **Blocked by all decision tickets.** When this closes, the destination is reached.
+
+## Resolution
+
+**Destination reached.** Assembled [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) at the repo root —
+the hand-off build plan — synthesising all eight critical-path decisions (0001–0009). Includes:
+
+- Scope & fixed constraints; domain model / ubiquitous language (Slot/Row/Cell/Entry).
+- Tech stack; OAuth & token strategy (flow, scopes, tenant/user resolution, memory-only lifecycle).
+- API abstraction layer (route table, error envelope, retry split, limits).
+- Frontend architecture + full grid UX spec (keyboard map, duration parsing, description flows,
+  per-cell autosave), links the signed-off prototype.
+- Phased roadmap (Phase 1 setup/auth → Phase 4 optional offline).
+- **Both reference snippets:** (A) OAuth token-refresh helper (memory-only, rotating, single-flight);
+  (B) time-entry write wrapper (`POST /Projects/{projectId}/Time`) + PUT/DELETE notes.
+- Open/deferred items (offline 0011, granular scopes, packaging) and a decision trail appendix.
+
+Only ticket 0011 (optional offline) remains open on the map; the critical path is complete.

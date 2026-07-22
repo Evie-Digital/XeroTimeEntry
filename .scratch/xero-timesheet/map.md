@@ -15,6 +15,11 @@ including two reference code snippets (OAuth token-refresh helper; time-entry wr
 Reaching the destination = every decision below is made and the assembled plan exists.
 **The implementation itself is out of scope** — this map produces the plan, not the app.
 
+> ✅ **REACHED (critical path complete).** The build plan lives at [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
+> All nine critical-path tickets (0001–0009) are resolved and synthesised in
+> [the assembly ticket](tickets/0010-assemble-architecture-plan.md). Only the **optional** offline
+> decision ([0011](tickets/0011-offline-draft-support.md)) remains open, off the critical path.
+
 ## Notes
 
 - **Domain:** Xero Projects API v2.0 (`https://api.xero.com/projects.xro/2.0/`). Time entries are
@@ -48,6 +53,7 @@ Reaching the destination = every decision below is made and the assembled plan e
 - [Decide: client caching, active-filtering & recent/frequent prefill](tickets/0007-caching-prefill.md) — **React Query + localStorage** in the browser; active projects + per-project active tasks cached ~10 min stale-while-revalidate (+ manual refresh); the week's entries fetched per-week and invalidated on every write; active = `states=INPROGRESS` (projects) + client-side `status==='ACTIVE'` (tasks); `userId`/`tenantId` in server session memory. **Prefill = copy last week (A+B)**: seed rows from last week's Xero entries, augmented by a localStorage recent-rows set; **no usage ranking** (plain typeahead).
 - [Prototype: keyboard-driven weekly grid UX](tickets/0008-grid-ux-prototype.md) — UX spec locked from a signed-off [interactive prototype](https://claude.ai/code/artifact/7ce3ffba-c9db-4709-8654-139979c8c5a8). Type-to-edit; **Enter=commit+down, Tab=commit+right** (wraps); ⌫ clears; **⌘K** add-row typeahead. Duration accepts `1.5`/`1:30`/`90m`/`1h30` (bare int ≥16 = minutes). **Description via inline `2.5 // note`, double-click, or ⌥Enter**. **Live per-cell autosave, no batch submit** ⇒ a `conflict` cell is non-blocking. Cell states: empty/editing/saving/saved/error/locked/conflict.
 - [Decide: internal API abstraction layer & error envelope](tickets/0009-api-abstraction-layer.md) — **thin proxy**: routes ~1:1 with Xero through one server-side wrapper (single-flight refresh, tenant header, 401→refresh+retry-once, `paginate()`), client (React Query) owns 429/5xx backoff + GET de-dupe. Uniform error envelope `{error:{code,message,retryAfter?,fields?}}`. Routes: `/auth/*`, `/projects`, `/projects/{id}/tasks`, `/me`, composed **`/week?from&to` (full scan, ≤5 concurrent)**, flat `/timeentries` POST/PUT/DELETE (projectId in payload). Tokens never reach browser. **Wrinkle:** no global time list → week loader fans out per project (full-scan chosen).
+- [Assemble the ARCHITECTURE.md build plan + reference snippets](tickets/0010-assemble-architecture-plan.md) — **destination reached**: synthesised all decisions into [`ARCHITECTURE.md`](../../ARCHITECTURE.md) — scope, domain model, stack, OAuth/token strategy, API layer, grid UX spec, phased roadmap, and both reference snippets (token-refresh helper; time-entry write wrapper).
 
 ## Not yet specified
 
