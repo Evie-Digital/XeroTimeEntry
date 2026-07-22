@@ -31,6 +31,7 @@ function baseSession(overrides: Partial<XeroSession> = {}): XeroSession {
     email: "gavin@evie.digital",
     name: "Gavin Harris",
     tenantName: "Evie Digital",
+    tenants: [{ tenantId: "tenant-abc", tenantName: "Evie Digital" }],
     ...overrides,
   };
 }

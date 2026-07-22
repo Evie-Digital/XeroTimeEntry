@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
@@ -104,5 +104,48 @@ describe("WeekView — week navigation", () => {
     expect(await screen.findByText("Mon 20 – Sun 26")).toBeInTheDocument();
     const cell = await screen.findByTestId("cell-proj-1-task-1-2026-07-20");
     expect(within(cell).getByText("1")).toBeInTheDocument();
+  });
+
+  it("⌘/Ctrl+] advances a week and ⌘/Ctrl+\\ returns to this week", async () => {
+    mockWeekByFrom();
+    renderWithClient(<WeekView today={TODAY} />);
+
+    await screen.findByTestId("cell-proj-1-task-1-2026-07-20");
+
+    // ⌘/Ctrl+] → next week (the window listener handles it, no button click).
+    fireEvent.keyDown(window, { key: "]", ctrlKey: true });
+    expect(await screen.findByText("Mon 27 – Sun 2")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("cell-proj-1-task-2-2026-07-27"),
+    ).toHaveTextContent("2");
+
+    // ⌘/Ctrl+\ → jump straight back to today's week.
+    fireEvent.keyDown(window, { key: "\\", ctrlKey: true });
+    expect(await screen.findByText("Mon 20 – Sun 26")).toBeInTheDocument();
+    await screen.findByTestId("cell-proj-1-task-1-2026-07-20");
+  });
+
+  it("⌘/Ctrl+[ steps back a week", async () => {
+    mockWeekByFrom();
+    renderWithClient(<WeekView today={TODAY} />);
+
+    await screen.findByTestId("cell-proj-1-task-1-2026-07-20");
+
+    fireEvent.keyDown(window, { key: "[", metaKey: true });
+    expect(await screen.findByText("Mon 13 – Sun 19")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText("No time logged this week.")).toBeInTheDocument(),
+    );
+  });
+
+  it("surfaces each week-nav shortcut in its button label", async () => {
+    mockWeekByFrom();
+    renderWithClient(<WeekView today={TODAY} />);
+
+    // The bracket/backslash key rides in each button's <kbd> regardless of the
+    // ⌘-vs-Ctrl platform prefix.
+    expect(await screen.findByTestId("week-prev")).toHaveTextContent("[");
+    expect(screen.getByTestId("week-next")).toHaveTextContent("]");
+    expect(screen.getByTestId("week-today")).toHaveTextContent("\\");
   });
 });

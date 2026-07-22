@@ -30,6 +30,7 @@ function baseSession(overrides: Partial<XeroSession> = {}): XeroSession {
     email: "gavin@evie.digital",
     name: "Gavin Harris",
     tenantName: "Evie Digital",
+    tenants: [{ tenantId: "tenant-abc", tenantName: "Evie Digital" }],
     ...overrides,
   };
 }
@@ -112,9 +113,12 @@ describe("GET /api/week", () => {
     for (const params of seen) {
       expect(params).toEqual({
         userId: "user-2",
-        dateAfterUtc: "2026-07-20",
-        // Upper bound is widened to end-of-day so a last-day Entry with a
-        // time-of-day isn't dropped (see the inclusion regression test below).
+        // Both bounds are full ISO instants (Xero declares them as
+        // `format: date-time`; both inclusive) spanning the entire week:
+        // Monday's midnight through the very end of Sunday. The end-of-day
+        // upper bound keeps a last-day Entry with a time-of-day in range (see
+        // the inclusion regression test below).
+        dateAfterUtc: "2026-07-20T00:00:00Z",
         dateBeforeUtc: "2026-07-26T23:59:59.999Z",
       });
     }

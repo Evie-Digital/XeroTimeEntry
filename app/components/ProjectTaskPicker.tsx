@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useAuthStatus } from "../hooks/auth";
 import { useProjects, useTasks, useRefreshLists } from "../hooks/lists";
 
 // Minimal proof-of-end-to-end UI (ARCHITECTURE §6): lists active projects and,
@@ -9,20 +9,11 @@ import { useProjects, useTasks, useRefreshLists } from "../hooks/lists";
 // real keyboard-driven weekly grid arrives in a later slice; this only proves
 // the read + cache path is wired.
 
-type Status = { authenticated: boolean };
-
 /** Only render the picker once the browser is authenticated. Shares the
- *  ["auth-status"] query key with <AuthStatus/>, so this dedupes rather than
- *  issuing a second /status request. */
+ *  never-cached auth-status query with <AuthStatus/>, so this dedupes rather
+ *  than issuing a second /status request. */
 export function ProjectTaskPicker() {
-  const { data: status } = useQuery<Status>({
-    queryKey: ["auth-status"],
-    queryFn: async () => {
-      const res = await fetch("/api/xero/status");
-      if (!res.ok) throw new Error(`status check failed: ${res.status}`);
-      return res.json();
-    },
-  });
+  const { data: status } = useAuthStatus();
 
   if (!status?.authenticated) return null;
   return <Picker />;

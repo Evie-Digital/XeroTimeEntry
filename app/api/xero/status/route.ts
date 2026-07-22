@@ -17,5 +17,9 @@ export function GET(req: NextRequest): NextResponse {
     authenticated: true,
     user: { name: session.name, email: session.email },
     org: session.tenantName,
+    // The org switcher: the ACTIVE tenant + every connected organisation
+    // (switching is POST /api/xero/tenant — no re-auth needed).
+    tenantId: session.tenantId,
+    orgs: session.tenants,
   });
 }

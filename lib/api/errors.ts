@@ -6,8 +6,11 @@
 // small and stable.
 //
 // Server-only (imports next/server + the Xero client). The client parses the
-// envelope shape independently; do not import this from client components.
+// envelope shape independently; the `server-only` poison-pill below turns any
+// accidental client-component import into a build error. (Tests alias it to an
+// empty stub — see vitest.config.ts.)
 
+import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { ReauthRequired } from "@/lib/xero/session";
 import { RateLimited, XeroValidation } from "@/lib/xero/client";

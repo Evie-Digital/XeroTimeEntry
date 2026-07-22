@@ -5,6 +5,11 @@
 // This module is reused by every later data slice, so its surface is kept small
 // and explicit.
 
+// Poison-pill: this module holds OAuth tokens, so importing it from a client
+// component must be a BUILD error, not a silent secret leak. (Tests alias this
+// to an empty stub — see vitest.config.ts.)
+import "server-only";
+
 /** Thrown when there is no usable session and the caller must re-authenticate. */
 export class ReauthRequired extends Error {
   constructor(message = "reauth_required") {
@@ -13,15 +18,26 @@ export class ReauthRequired extends Error {
   }
 }
 
+/** One connected Xero organisation (from GET /connections). */
+export type TenantRef = { tenantId: string; tenantName: string };
+
 export type XeroSession = {
   accessToken: string;
   accessTokenExpiry: number; // epoch ms
   refreshToken: string;
+  /** The ACTIVE organisation — every Projects call sends this tenant header. */
   tenantId: string;
+  /** The Projects userId resolved in the ACTIVE organisation (re-resolved on
+   *  switch — userIds are per-tenant). */
   userId: string;
   email: string;
   name: string;
   tenantName: string;
+  /** EVERY organisation this login has connected to the app. One token serves
+   *  them all (switching = changing the tenant header, no re-auth); adding a
+   *  new org later means running the consent flow again, which re-populates
+   *  this list from /connections. */
+  tenants: TenantRef[];
 };
 
 const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";

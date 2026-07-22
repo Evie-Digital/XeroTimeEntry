@@ -24,6 +24,7 @@ describe("session is a true per-process singleton (survives module re-instantiat
     email: "gavin@example.com",
     name: "Gavin",
     tenantName: "Acme Ltd",
+    tenants: [{ tenantId: "tenant-1", tenantName: "Acme Ltd" }],
   };
 
   it("a session set in one module instance is visible from a freshly-imported instance", async () => {

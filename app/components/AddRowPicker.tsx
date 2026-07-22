@@ -62,6 +62,13 @@ export function AddRowPicker({
       }));
   }, [stage, query, projects.data, tasks.data, project, existingRowKeys]);
 
+  // `index` only resets on typing, but the options list can shrink UNDER it
+  // (a background refetch after staleTime returning fewer items). A raw
+  // out-of-range index would leave no option aria-selected, make Enter a
+  // no-op, and strand ↑ out of range — so never read `index` directly: derive
+  // an in-bounds selection each render and use IT for highlight/Enter/arrows.
+  const sel = Math.min(index, Math.max(0, options.length - 1));
+
   function choose(i: number) {
     const opt = options[i];
     if (!opt) return;
@@ -88,16 +95,17 @@ export function AddRowPicker({
   function onKeyDown(e: React.KeyboardEvent) {
     switch (e.key) {
       case "ArrowDown":
+        // Step from the CLAMPED selection so a stranded index recovers.
         e.preventDefault();
-        setIndex((i) => Math.min(i + 1, options.length - 1));
+        setIndex(Math.min(sel + 1, options.length - 1));
         break;
       case "ArrowUp":
         e.preventDefault();
-        setIndex((i) => Math.max(i - 1, 0));
+        setIndex(Math.max(sel - 1, 0));
         break;
       case "Enter":
         e.preventDefault();
-        choose(index);
+        choose(sel);
         break;
       case "Escape":
         e.preventDefault();
@@ -157,13 +165,13 @@ export function AddRowPicker({
               <button
                 type="button"
                 role="option"
-                aria-selected={i === index}
+                aria-selected={i === sel}
                 aria-disabled={opt.disabled || undefined}
                 data-testid={`add-row-option-${opt.id}`}
                 onClick={() => choose(i)}
                 onMouseEnter={() => setIndex(i)}
                 className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm ${
-                  i === index
+                  i === sel
                     ? "bg-black/10 dark:bg-white/15"
                     : "hover:bg-black/5 dark:hover:bg-white/10"
                 } ${opt.disabled ? "opacity-50" : ""}`}

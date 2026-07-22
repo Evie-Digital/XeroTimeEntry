@@ -86,8 +86,11 @@ Tickets 0002 (flow) + 0006 (storage). Xero facts verified against Xero's officia
 
 ### Tenant & user resolution (once, at callback)
 1. Exchange the code for tokens.
-2. `GET https://api.xero.com/connections` → pick `tenantId` (+ `tenantName`). **Every** Projects call
-   needs both `Authorization: Bearer` and `Xero-tenant-id` headers.
+2. `GET https://api.xero.com/connections` → keep the **full organisation list** in the session; the
+   first org starts active. **Every** Projects call needs both `Authorization: Bearer` and
+   `Xero-tenant-id` headers. One token serves every connected org, so **switching org is just a
+   header change** (`POST /auth/tenant`) — no re-auth; the per-tenant `userId` is re-resolved on
+   switch. Connecting an *additional* org later = running the consent flow again.
 3. Decode the `id_token` → `email` claim (the caller's email).
 4. `GET /projectsusers` (paginate) → match the item whose `email` equals the caller's → **`userId`**.
    `GET /projectsusers` marks no one as "the caller", so email-matching is the only way. Guard the
@@ -120,7 +123,8 @@ Xero client wrapper; the client (React Query) owns retry/backoff/de-dupe.
 |---|---|
 | `GET /auth/login` → 302 | build Xero authorize URL (scopes + `state`) |
 | `GET /auth/callback` → 302 | exchange code → store tokens → resolve tenant + `userId` → set cookie |
-| `GET /auth/status` | — (from session): `{ authenticated, user?, org? }` |
+| `GET /auth/status` | — (from session): `{ authenticated, user?, org?, tenantId?, orgs? }` |
+| `POST /auth/tenant` | — switch the active org (re-resolve per-tenant `userId`; rolls back on failure) |
 | `POST /auth/logout` *(optional, not UI-wired)* | clear session + cookie |
 | `GET /projects` | paginate `GET /Projects?states=INPROGRESS` (active only) |
 | `GET /projects/{id}/tasks` | paginate `GET /Projects/{id}/Tasks`, filter `status==='ACTIVE'` |

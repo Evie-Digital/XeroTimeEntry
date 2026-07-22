@@ -3,6 +3,11 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Solid "today" highlight for STICKY grid cells (ARCHITECTURE §6). Sticky
+     cells need an OPAQUE background — the translucent black/5 overlay used on
+     in-flow cells would let content visibly slide through underneath — so the
+     highlight is pre-mixed into the page background here. */
+  --grid-today-bg: color-mix(in srgb, #000 5%, var(--background));
 }
 
 @theme inline {
@@ -16,6 +21,8 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    /* Dark mirror of the sticky today-highlight (white/10 over the dark bg). */
+    --grid-today-bg: color-mix(in srgb, #fff 10%, var(--background));
   }
 }
 

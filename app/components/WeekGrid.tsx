@@ -1,8 +1,10 @@
 "use client";
 
 // The weekly grid (ARCHITECTURE §2/§6). Rows = distinct (projectId, taskId)
-// present in the week, columns = Mon–Sun, per-row Total, a Daily-total footer +
-// grand total, today highlighted. Durations show as decimal hours. Read-only
+// present in the week (sticky-left labels), columns = Mon–Sun (sticky-top
+// header), per-row Total (sticky-right), a Daily-total footer + grand total,
+// today highlighted, and a <SyncStatusBar/> beneath the table aggregating the
+// per-cell autosave state. Durations show as decimal hours. Read-only
 // Cells: `saved`, `locked` (invoiced/non-ACTIVE Entry) and `conflict` (2+
 // Entries in a Slot, summed with a ⋯ marker).
 //
@@ -16,7 +18,8 @@
 // `data-testid="cell-{pid}-{tid}-{date}"` with the live state on `data-state`.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useAuthStatus } from "../hooks/auth";
+import { usePlatformShortcut } from "../hooks/platform";
 import { useWeek } from "../hooks/week";
 import { ApiError } from "../hooks/lists";
 import {
@@ -42,29 +45,27 @@ import {
 } from "./gridNav";
 import { AddRowPicker } from "./AddRowPicker";
 import { ConflictResolver } from "./ConflictResolver";
-
-type Status = { authenticated: boolean };
+import { SyncStatusBar } from "./SyncStatusBar";
 
 /** Auth-gated section for the home page: resolves the current week + guards on
- *  auth (dedupes the ["auth-status"] query with <AuthStatus/>). */
+ *  auth (shares the never-cached auth-status query with <AuthStatus/>).
+ *  Keyed by the ACTIVE tenant so an org switch REMOUNTS the grid — client-side
+ *  state (added rows, focus, anchor) never leaks across organisations — and
+ *  the tenantKey scopes the recent-rows prefill to the org it belongs to. */
 export function WeekGridSection() {
-  const { data: status } = useQuery<Status>({
-    queryKey: ["auth-status"],
-    queryFn: async () => {
-      const res = await fetch("/api/xero/status");
-      if (!res.ok) throw new Error(`status check failed: ${res.status}`);
-      return res.json();
-    },
-  });
+  const { data: status } = useAuthStatus();
 
   if (!status?.authenticated) return null;
 
-  return <WeekView />;
+  const tenantKey = status.tenantId ?? "";
+  return <WeekView key={tenantKey} tenantKey={tenantKey} />;
 }
 
 export type WeekViewProps = {
   /** Override "today" for deterministic tests; defaults to the local date. */
   today?: string;
+  /** Active tenantId — scopes the recent-rows prefill (org switcher). */
+  tenantKey?: string;
 };
 
 /**
@@ -75,16 +76,42 @@ export type WeekViewProps = {
  * screen. Each week `WeekGrid` seeds its own "copy last week" prefill (source A
  * = its previous week; source B = the recent-rows localStorage set).
  */
-export function WeekView({ today }: WeekViewProps) {
+export function WeekView({ today, tenantKey }: WeekViewProps) {
   const todayDate = today ?? todayIso();
   const [anchor, setAnchor] = useState(todayDate);
   const dates = weekDates(anchor);
   const from = dates[0];
   const to = dates[6];
   const isThisWeek = from === weekDates(todayDate)[0];
+  const shortcut = usePlatformShortcut();
+
+  // Week-navigation shortcuts (§6 keyboard model), registered at the window
+  // like ⌘K. They mirror the universal back/forward idiom: ⌘/Ctrl+[ → previous
+  // week, ⌘/Ctrl+] → next week, ⌘/Ctrl+\ → jump to this week. `preventDefault`
+  // stops the browser's own ⌘+[ / ⌘+] history navigation. (Plain arrows are
+  // reserved for cell-to-cell focus, hence the ⌘/Ctrl modifier here.)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === "[") {
+        e.preventDefault();
+        setAnchor((a) => addDays(a, -7));
+      } else if (e.key === "]") {
+        e.preventDefault();
+        setAnchor((a) => addDays(a, 7));
+      } else if (e.key === "\\") {
+        e.preventDefault();
+        setAnchor(todayDate);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [todayDate]);
 
   const btn =
-    "rounded border border-black/15 px-3 py-1 text-sm hover:bg-black/5 disabled:opacity-40 dark:border-white/20 dark:hover:bg-white/10";
+    "inline-flex items-center gap-2 rounded border border-black/15 px-3 py-1 text-sm hover:bg-black/5 disabled:opacity-40 dark:border-white/20 dark:hover:bg-white/10";
+  const kbd =
+    "rounded border border-black/15 px-1 text-xs opacity-70 dark:border-white/20";
 
   return (
     <div className="flex flex-col gap-3">
@@ -100,6 +127,7 @@ export function WeekView({ today }: WeekViewProps) {
           className={btn}
         >
           ← Prev
+          <kbd className={kbd}>{shortcut("[")}</kbd>
         </button>
         <button
           type="button"
@@ -109,6 +137,7 @@ export function WeekView({ today }: WeekViewProps) {
           className={btn}
         >
           This week
+          <kbd className={kbd}>{shortcut("\\")}</kbd>
         </button>
         <button
           type="button"
@@ -118,6 +147,7 @@ export function WeekView({ today }: WeekViewProps) {
           className={btn}
         >
           Next →
+          <kbd className={kbd}>{shortcut("]")}</kbd>
         </button>
         <span
           data-testid="week-range"
@@ -126,7 +156,7 @@ export function WeekView({ today }: WeekViewProps) {
           {dayLabel(from)} – {dayLabel(to)}
         </span>
       </nav>
-      <WeekGrid from={from} to={to} today={todayDate} />
+      <WeekGrid from={from} to={to} today={todayDate} tenantKey={tenantKey} />
     </div>
   );
 }
@@ -138,6 +168,9 @@ export type WeekGridProps = {
   today?: string;
   /** Seed client-side extra Rows (prefill #09 passes "copy last week" here). */
   initialExtraRows?: ExtraRow[];
+  /** Active tenantId — scopes the recent-rows prefill (org switcher). Empty /
+   *  absent (tests, single-org) uses the unscoped legacy storage key. */
+  tenantKey?: string;
 };
 
 export function WeekGrid({
@@ -145,6 +178,7 @@ export function WeekGrid({
   to,
   today,
   initialExtraRows,
+  tenantKey,
 }: WeekGridProps) {
   const { data, isPending, isError } = useWeek(from, to);
   const dates = weekDates(from);
@@ -162,14 +196,14 @@ export function WeekGrid({
     const merged = new Map<string, ExtraRow>();
     for (const r of [
       ...distinctRows(prevWeek.data ?? []),
-      ...readRecentRows(),
+      ...readRecentRows(tenantKey),
     ]) {
       merged.set(rowKey(r.projectId, r.taskId), r);
     }
     return [...merged.values()];
     // `prevWeek.data` changes whenever `from` does (its query key is derived
     // from `from`), so it alone re-seeds — and re-reads recent-rows — per week.
-  }, [prevWeek.data]);
+  }, [prevWeek.data, tenantKey]);
 
   // Client-side Rows added-but-not-yet-logged (add-row #07 / prefill #09).
   // UNIONed with the seed + entry-derived Rows by `buildWeek`, de-duped by rowKey.
@@ -180,6 +214,9 @@ export function WeekGrid({
   // rowKey of a just-added Row awaiting focus (rows sort by label, so resolve
   // its index from the rebuilt model in an effect below).
   const [focusRowKey, setFocusRowKey] = useState<string | null>(null);
+
+  // Platform-aware label for the add-row shortcut shown on the visible button.
+  const shortcut = usePlatformShortcut();
 
   const model = buildWeek(data ?? [], dates, [...seedRows, ...extraRows]);
   const nav = useRovingFocus(model.rows.length, dates.length);
@@ -216,21 +253,27 @@ export function WeekGrid({
   );
 
   // Stable identity is needed for the picker/keydown deps below; the compiler
-  // can't prove the manual memoization is preservable here.
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
-  const addRow = useCallback((row: ExtraRow) => {
-    const key = rowKey(row.projectId, row.taskId);
-    setExtraRows((prev) =>
-      prev.some((r) => rowKey(r.projectId, r.taskId) === key)
-        ? prev
-        : [...prev, row],
-    );
-    // Source B: remember the Row so it carries into future weeks' seeds even
-    // before any time is logged to it (prefill #09).
-    addRecentRow(row);
-    setPickerOpen(false);
-    setFocusRowKey(key);
-  }, []);
+  // can't prove the manual memoization is preservable here. (tenantKey is a
+  // dep for form's sake only — WeekView is keyed by it, so it is constant for
+  // the life of any mounted WeekGrid.)
+  /* eslint-disable react-hooks/preserve-manual-memoization */
+  const addRow = useCallback(
+    (row: ExtraRow) => {
+      const key = rowKey(row.projectId, row.taskId);
+      setExtraRows((prev) =>
+        prev.some((r) => rowKey(r.projectId, r.taskId) === key)
+          ? prev
+          : [...prev, row],
+      );
+      // Source B: remember the Row (scoped to the active org) so it carries
+      // into future weeks' seeds even before any time is logged (prefill #09).
+      addRecentRow(row, tenantKey);
+      setPickerOpen(false);
+      setFocusRowKey(key);
+    },
+    [tenantKey],
+  );
+  /* eslint-enable react-hooks/preserve-manual-memoization */
 
   if (isPending) {
     return (
@@ -247,29 +290,79 @@ export function WeekGrid({
     );
   }
 
+  // Sticky-cell plumbing (§6 layout: sticky left row labels, sticky top day
+  // header, sticky right Total column). Three rules make the layering work:
+  //   1. Every sticky cell gets a SOLID page-matching background
+  //      (`bg-background` = globals.css `--background`, light AND dark) —
+  //      `bg-inherit` resolves transparent on a <tr>, so in-flow cells would
+  //      visibly slide underneath. Today-highlighted sticky cells use the
+  //      pre-mixed opaque `--grid-today-bg` for the same reason.
+  //   2. z-index tiers: corner cells (top+left / top+right intersections)
+  //      z-30 > header row z-20 > left/right body columns z-10 > in-flow
+  //      cells (auto), so every crossing occludes in the right order.
+  //   3. `border-separate` instead of `border-collapse`: collapsed borders
+  //      are painted per-table and DON'T travel with sticky cells, so each
+  //      cell carries its own top border (the old per-<tr> border-t moved
+  //      onto the cells).
+  // (No background or z-tier here — each header cell picks exactly ONE opaque
+  // bg and ONE z-index below, so the today-highlight never fights
+  // `bg-background` and the corner cells' z-30 never fights the row's z-20.)
+  const stickyHeader =
+    "sticky top-0 border-b border-black/20 dark:border-white/20";
+  const rowBorder = "border-t border-black/10 dark:border-white/10";
+  const footBorder = "border-t border-black/20 dark:border-white/20";
+
   return (
     <GridNavProvider nav={nav}>
-    <div className="overflow-x-auto" data-testid="week-grid">
-      <table className="w-full border-collapse text-sm">
+    {/* Mouse-reachable entry point for the add-row picker (the same one ⌘/Ctrl+K
+        opens). The shortcut rides in the label as a <kbd> so it stays
+        discoverable for keyboard users. */}
+    <div className="flex items-center">
+      <button
+        type="button"
+        data-testid="add-row-button"
+        onClick={() => setPickerOpen(true)}
+        className="inline-flex items-center gap-2 rounded border border-black/15 px-3 py-1 text-sm hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+      >
+        <span aria-hidden="true">＋</span>
+        Add row
+        <kbd className="rounded border border-black/15 px-1 text-xs opacity-70 dark:border-white/20">
+          {shortcut("K")}
+        </kbd>
+      </button>
+    </div>
+    {/* `overflow-auto` + a max height keeps BOTH scroll axes inside the grid:
+        horizontal scroll stays contained (§6), and the vertical scrollport is
+        this container — position:sticky only sticks within the nearest scroll
+        container, so a top-sticky header needs the grid (not the page) to own
+        vertical scrolling. */}
+    <div className="max-h-[80vh] overflow-auto" data-testid="week-grid">
+      <table className="w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
-            <th className="sticky left-0 bg-inherit p-2 text-left font-semibold">
+            <th
+              className={`${stickyHeader} left-0 z-30 bg-background p-2 text-left font-semibold`}
+            >
               Project · Task
             </th>
             {dates.map((date) => (
               <th
                 key={date}
                 data-today={date === todayDate ? "true" : undefined}
-                className={`p-2 text-center font-medium ${
+                className={`${stickyHeader} z-20 p-2 text-center font-medium ${
                   date === todayDate
-                    ? "bg-black/5 dark:bg-white/10"
-                    : ""
+                    ? "bg-[var(--grid-today-bg)]"
+                    : "bg-background"
                 }`}
               >
                 {dayLabel(date)}
               </th>
             ))}
-            <th className="p-2 text-right font-semibold">Total</th>
+            <th
+              className={`${stickyHeader} right-0 z-30 bg-background p-2 text-right font-semibold`}
+            >
+              Total
+            </th>
           </tr>
         </thead>
 
@@ -278,20 +371,20 @@ export function WeekGrid({
             <tr>
               <td
                 colSpan={dates.length + 2}
-                className="p-4 text-center opacity-60"
+                className={`${rowBorder} p-4 text-center opacity-60`}
               >
                 No time logged this week.
               </td>
             </tr>
           ) : (
             model.rows.map((row, rowIndex) => (
-              <tr
-                key={`${row.projectId}-${row.taskId}`}
-                className="border-t border-black/10 dark:border-white/10"
-              >
+              // Row borders live on the CELLS (not the <tr>): with
+              // `border-separate` a <tr> border never paints, and per-cell
+              // borders travel with the sticky columns.
+              <tr key={`${row.projectId}-${row.taskId}`}>
                 <th
                   scope="row"
-                  className="sticky left-0 bg-inherit p-2 text-left font-normal"
+                  className={`${rowBorder} sticky left-0 z-10 bg-background p-2 text-left font-normal`}
                 >
                   {row.label}
                 </th>
@@ -307,7 +400,7 @@ export function WeekGrid({
                   />
                 ))}
                 <td
-                  className="p-2 text-right font-medium tabular-nums"
+                  className={`${rowBorder} sticky right-0 z-10 bg-background p-2 text-right font-medium tabular-nums`}
                   data-testid={`row-total-${row.projectId}-${row.taskId}`}
                 >
                   {formatHours(row.totalMinutes)}
@@ -318,14 +411,17 @@ export function WeekGrid({
         </tbody>
 
         <tfoot>
-          <tr className="border-t border-black/20 font-medium dark:border-white/20">
-            <th scope="row" className="sticky left-0 bg-inherit p-2 text-left">
+          <tr className="font-medium">
+            <th
+              scope="row"
+              className={`${footBorder} sticky left-0 z-10 bg-background p-2 text-left`}
+            >
               Daily total
             </th>
             {model.dailyTotals.map((minutes, i) => (
               <td
                 key={dates[i]}
-                className={`p-2 text-center tabular-nums ${
+                className={`${footBorder} p-2 text-center tabular-nums ${
                   dates[i] === todayDate ? "bg-black/5 dark:bg-white/10" : ""
                 }`}
                 data-testid={`daily-total-${dates[i]}`}
@@ -334,7 +430,7 @@ export function WeekGrid({
               </td>
             ))}
             <td
-              className="p-2 text-right tabular-nums"
+              className={`${footBorder} sticky right-0 z-10 bg-background p-2 text-right tabular-nums`}
               data-testid="grand-total"
             >
               {formatHours(model.grandTotal)}
@@ -343,6 +439,9 @@ export function WeekGrid({
         </tfoot>
       </table>
     </div>
+    {/* §6 save model: live per-cell autosave + "a status bar shows sync
+        state" — one quiet aggregate line beneath the grid (ticket 0008). */}
+    <SyncStatusBar />
     {pickerOpen && (
       <AddRowPicker
         existingRowKeys={existingRowKeys}
@@ -705,13 +804,16 @@ function GridCell({
     />
   ) : null;
 
+  // Row border is carried per-cell (the table is `border-separate`, so <tr>
+  // borders never paint — see the sticky-layout note in WeekGrid). Day cells
+  // are in-flow (not sticky), so the translucent today-wash is fine here.
   return (
     <td
       data-testid={`cell-${slot.projectId}-${slot.taskId}-${slot.date}`}
       data-state={displayState}
       data-today={isToday ? "true" : undefined}
       onDoubleClick={editable ? openNoteEditor : undefined}
-      className={`p-2 text-center tabular-nums ${
+      className={`border-t border-black/10 p-2 text-center tabular-nums dark:border-white/10 ${
         isToday ? "bg-black/5 dark:bg-white/10" : ""
       } ${slot.state === "locked" ? "opacity-70" : ""}`}
     >

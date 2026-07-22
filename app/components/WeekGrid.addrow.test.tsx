@@ -58,6 +58,25 @@ async function openPickerToTasks(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("WeekGrid — add-row picker (Ctrl/Cmd+K)", () => {
+  it("opens the picker via the visible Add row button (shortcut shown in its label)", async () => {
+    server.use(http.get("*/api/week", () => HttpResponse.json([seed()])));
+    mockLists();
+    renderWithClient(<WeekGrid from={FROM} to={TO} today={TODAY} />);
+    const user = userEvent.setup();
+
+    // The button is present once the week loads, advertises the keyboard
+    // shortcut, and opens the same picker ⌘/Ctrl+K does.
+    const button = await screen.findByTestId("add-row-button");
+    expect(button).toHaveTextContent(/Add row/);
+    expect(button).toHaveTextContent(/K$/); // "⌘K" (jsdom) or "Ctrl+K"
+    expect(screen.queryByTestId("add-row-picker")).not.toBeInTheDocument();
+
+    await user.click(button);
+
+    const picker = await screen.findByTestId("add-row-picker");
+    expect(within(picker).getByRole("listbox")).toBeInTheDocument();
+  });
+
   it("opens the picker, marks already-added rows, and won't duplicate them", async () => {
     server.use(http.get("*/api/week", () => HttpResponse.json([seed()])));
     mockLists();

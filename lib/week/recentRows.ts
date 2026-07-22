@@ -14,6 +14,13 @@ import { rowKey, type ExtraRow } from "./grid";
 /** Versioned so a future shape change can't collide with old persisted data. */
 export const RECENT_ROWS_KEY = "timeentry.recent-rows.v1";
 
+/** Project/task ids are PER-ORGANISATION, so the recent set is scoped by the
+ *  active tenantId (org switcher) — otherwise a row remembered in one org
+ *  would seed unusable ids into another org's grid. Empty scope (tests,
+ *  pre-auth) keeps the unscoped legacy key. */
+const storageKey = (scope?: string): string =>
+  scope ? `${RECENT_ROWS_KEY}.${scope}` : RECENT_ROWS_KEY;
+
 function isExtraRow(v: unknown): v is ExtraRow {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
@@ -26,10 +33,10 @@ function isExtraRow(v: unknown): v is ExtraRow {
 }
 
 /** The persisted recent Rows (most-recently-added last). Never throws. */
-export function readRecentRows(): ExtraRow[] {
+export function readRecentRows(scope?: string): ExtraRow[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(RECENT_ROWS_KEY);
+    const raw = window.localStorage.getItem(storageKey(scope));
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -44,11 +51,11 @@ export function readRecentRows(): ExtraRow[] {
  * it's the most-recent). Stores only the four ExtraRow fields. No-op on the
  * server or if storage is unavailable.
  */
-export function addRecentRow(row: ExtraRow): void {
+export function addRecentRow(row: ExtraRow, scope?: string): void {
   if (typeof window === "undefined") return;
   const key = rowKey(row.projectId, row.taskId);
   const next: ExtraRow[] = [
-    ...readRecentRows().filter(
+    ...readRecentRows(scope).filter(
       (r) => rowKey(r.projectId, r.taskId) !== key,
     ),
     {
@@ -59,7 +66,7 @@ export function addRecentRow(row: ExtraRow): void {
     },
   ];
   try {
-    window.localStorage.setItem(RECENT_ROWS_KEY, JSON.stringify(next));
+    window.localStorage.setItem(storageKey(scope), JSON.stringify(next));
   } catch {
     /* quota exceeded / storage disabled — recent-rows is best-effort */
   }

@@ -63,6 +63,16 @@ export function useRovingFocus(rowCount: number, dayCount = 7): GridNav {
   const cells = useRef(new Map<string, HTMLElement>());
   const pendingFocus = useRef(false);
 
+  // The grid can shrink UNDER the stored coordinate: focus the last row, delete
+  // its only Entry, and the week refetch drops that row — `active.row` now
+  // points past the end. If we compared against the raw coordinate, `isActive`
+  // would be false for EVERY Cell, every Cell would get `tabIndex=-1`, and a
+  // keyboard user could never Tab back into the grid. So we never trust
+  // `active` directly: derive an in-bounds coordinate each render (pure
+  // clamping — no state-syncing effect needed) and use IT everywhere below.
+  const safeRow = Math.min(active.row, Math.max(0, rowCount - 1));
+  const safeDay = Math.min(active.day, Math.max(0, dayCount - 1));
+
   const register = useCallback(
     (row: number, day: number, el: HTMLElement | null) => {
       const k = cellKey(row, day);
@@ -92,13 +102,19 @@ export function useRovingFocus(rowCount: number, dayCount = 7): GridNav {
     ) => {
       if (rowCount === 0 || dayCount === 0) return;
 
-      let nextRow = row;
-      let nextDay = day;
+      // The caller's coordinate may be stale after the grid shrank (same
+      // hazard as `active` above) — clamp it in-bounds before stepping so a
+      // move from a vanished row lands on a real Cell instead of past the end.
+      const baseRow = Math.min(Math.max(row, 0), rowCount - 1);
+      const baseDay = Math.min(Math.max(day, 0), dayCount - 1);
+
+      let nextRow = baseRow;
+      let nextDay = baseDay;
 
       if (opts?.wrap && (dir === "left" || dir === "right")) {
         // Tab / Shift+Tab: treat the grid as one ring and wrap across rows.
         const total = rowCount * dayCount;
-        const idx = row * dayCount + day;
+        const idx = baseRow * dayCount + baseDay;
         const next =
           dir === "right" ? (idx + 1) % total : (idx - 1 + total) % total;
         nextRow = Math.floor(next / dayCount);
@@ -107,16 +123,16 @@ export function useRovingFocus(rowCount: number, dayCount = 7): GridNav {
         // Arrows: clamp within the grid (no wrap).
         switch (dir) {
           case "right":
-            nextDay = Math.min(day + 1, dayCount - 1);
+            nextDay = Math.min(baseDay + 1, dayCount - 1);
             break;
           case "left":
-            nextDay = Math.max(day - 1, 0);
+            nextDay = Math.max(baseDay - 1, 0);
             break;
           case "up":
-            nextRow = Math.max(row - 1, 0);
+            nextRow = Math.max(baseRow - 1, 0);
             break;
           case "down":
-            nextRow = Math.min(row + 1, rowCount - 1);
+            nextRow = Math.min(baseRow + 1, rowCount - 1);
             break;
         }
       }
@@ -128,20 +144,36 @@ export function useRovingFocus(rowCount: number, dayCount = 7): GridNav {
   // Focus the target element only after a programmatic move (`focusCell`), never
   // on plain re-renders or a click-driven `syncActive` — so mounting the grid
   // doesn't steal focus, but navigation (incl. into a freshly-added row) does.
+  // Looks up the CLAMPED coordinate so a focus queued just as the grid shrank
+  // still lands on a real Cell.
   useEffect(() => {
     if (!pendingFocus.current) return;
     pendingFocus.current = false;
-    cells.current.get(cellKey(active.row, active.day))?.focus();
-  }, [active]);
+    cells.current.get(cellKey(safeRow, safeDay))?.focus();
+  }, [active, safeRow, safeDay]);
 
   const isActive = useCallback(
-    (row: number, day: number) => active.row === row && active.day === day,
-    [active],
+    (row: number, day: number) => safeRow === row && safeDay === day,
+    [safeRow, safeDay],
+  );
+
+  // Expose the clamped coordinate as `active` so consumers that compare it
+  // directly (e.g. WeekGrid's Cell) agree with `isActive` after a shrink.
+  const safeActive = useMemo<Coord>(
+    () => ({ row: safeRow, day: safeDay }),
+    [safeRow, safeDay],
   );
 
   return useMemo(
-    () => ({ active, isActive, register, syncActive, focusCell, move }),
-    [active, isActive, register, syncActive, focusCell, move],
+    () => ({
+      active: safeActive,
+      isActive,
+      register,
+      syncActive,
+      focusCell,
+      move,
+    }),
+    [safeActive, isActive, register, syncActive, focusCell, move],
   );
 }
 

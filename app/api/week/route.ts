@@ -41,12 +41,19 @@ export const GET = withErrorEnvelope(async (req: NextRequest) => {
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";
 
-  // `to` is the week's last date (Sunday) as `YYYY-MM-DD`, which Xero would read
-  // as that day's midnight (`T00:00:00Z`). `dateBeforeUtc` filters `dateUtc`
-  // on/before that instant, so a last-day Entry authored in the Xero UI with a
-  // time-of-day (e.g. `…T15:00:00Z`) would fall AFTER a midnight bound and be
-  // silently dropped (spec story 11). Widen the upper bound to the END of the
-  // last day so the whole day is covered.
+  // Xero declares BOTH bounds as `format: date-time` ("finds all time entries
+  // on or after/before this date" — i.e. both INCLUSIVE), so we always send
+  // full ISO instants, never bare `YYYY-MM-DD` (undocumented behavior).
+  //
+  // Lower bound: the week's first date (Monday) at midnight UTC — the same
+  // `T00:00:00Z` form `slotDateUtc` (lib/week/dates.ts) uses for writes, so an
+  // Entry written by this app on the first day is trivially in range.
+  //
+  // Upper bound: `to` is the week's last date (Sunday). A midnight bound would
+  // read as that day's START, so a last-day Entry authored in the Xero UI with
+  // a time-of-day (e.g. `…T15:00:00Z`) would fall AFTER it and be silently
+  // dropped (spec story 11). Widen to the END of the last day instead.
+  const dateAfterUtc = `${from}T00:00:00Z`;
   const dateBeforeUtc = `${to}T23:59:59.999Z`;
 
   const projects = await paginate<XeroProject>("/Projects", {
@@ -59,7 +66,7 @@ export const GET = withErrorEnvelope(async (req: NextRequest) => {
     async (project): Promise<WeekEntry[]> => {
       const entries = await paginate<XeroTimeEntry>(
         `/Projects/${project.projectId}/Time`,
-        { userId: session.userId, dateAfterUtc: from, dateBeforeUtc },
+        { userId: session.userId, dateAfterUtc, dateBeforeUtc },
       );
       if (entries.length === 0) return [];
 

@@ -65,18 +65,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     email,
     name,
     tenantName: "",
+    tenants: [],
   });
 
-  // 2) Resolve the tenant via /connections (no tenant header needed yet).
-  let tenantId = "";
-  let tenantName = "";
+  // 2) Resolve the tenant(s) via /connections (no tenant header needed yet).
+  // KEEP the full organisation list: one token serves every connected org, so
+  // the org switcher (POST /api/xero/tenant) can swap the active tenant
+  // without re-authenticating. The first org starts active.
+  let tenants: { tenantId: string; tenantName: string }[] = [];
   try {
     const res = await xeroFetch("/connections", { base: XERO_API_BASE });
     if (!res.ok) throw new Error(`connections ${res.status}`);
     const conns = (await res.json()) as Connection[];
-    if (!conns.length) throw new Error("no connections");
-    tenantId = conns[0].tenantId;
-    tenantName = conns[0].tenantName;
+    tenants = conns
+      .filter((c) => !c.tenantType || c.tenantType === "ORGANISATION")
+      .map((c) => ({ tenantId: c.tenantId, tenantName: c.tenantName }));
+    if (!tenants.length) throw new Error("no connections");
   } catch {
     clearSession();
     return errorRedirect(
@@ -85,7 +89,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       "No Xero organisation is connected to this login.",
     );
   }
-  setSession({ ...getSession()!, tenantId, tenantName });
+  setSession({
+    ...getSession()!,
+    tenantId: tenants[0].tenantId,
+    tenantName: tenants[0].tenantName,
+    tenants,
+  });
 
   // 3) Resolve the Projects userId by email-matching /projectsusers.
   let userId = "";

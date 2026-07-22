@@ -7,6 +7,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./", import.meta.url)),
+      // The real `server-only` package throws outside an RSC bundler — that's
+      // its poison-pill purpose. Tests import server modules (lib/xero/session,
+      // lib/api/errors) directly, so stub it out with an empty module.
+      "server-only": fileURLToPath(
+        new URL("./test/stubs/server-only.ts", import.meta.url),
+      ),
     },
   },
   test: {
