@@ -1,17 +1,16 @@
-import crypto from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import {
-  clearSession,
-  getSession,
-  setSession,
-  setSessionId,
+  getCurrentSession,
+  runWithSession,
+  updateCurrentSession,
+  type XeroSession,
 } from "@/lib/xero/session";
 import { paginate, xeroFetch, XERO_API_BASE } from "@/lib/xero/client";
 import { decodeJwtPayload, exchangeCodeForTokens } from "@/lib/xero/oauth";
 import {
   cookieOptions,
+  encryptSession,
   SESSION_COOKIE,
-  signValue,
   STATE_COOKIE,
   verifyValue,
 } from "@/lib/xero/cookie";
@@ -19,10 +18,21 @@ import {
 type Connection = { tenantId: string; tenantName: string; tenantType?: string };
 type ProjectsUser = { userId: string; name: string; email: string };
 
+/** Carries the errorRedirect code + message out of the resolution step. */
+class CallbackError extends Error {
+  constructor(
+    public code: string,
+    public userMessage: string,
+  ) {
+    super(code);
+  }
+}
+
 // GET /api/xero/callback — the OAuth redirect target. Verify CSRF state,
-// exchange the code, populate the in-memory session, resolve tenantId
-// (/connections) + userId (/projectsusers email-match), then set the signed
-// httpOnly session cookie and land the user home.
+// exchange the code, resolve tenant(s) (/connections) + userId (/projectsusers
+// email-match) inside a session context, then ENCRYPT the resolved session into
+// the httpOnly cookie and land the user home. (Serverless-safe: the session
+// travels in the cookie, not server memory.)
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const { origin, searchParams } = req.nextUrl;
   const code = searchParams.get("code");
@@ -55,8 +65,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const email = String(claims.email ?? "").toLowerCase();
   const name = String(claims.name ?? claims.given_name ?? email);
 
-  // Establish the in-memory session; tenant + user are resolved next.
-  setSession({
+  // The session we'll resolve identity into. Tenant + user filled in below.
+  const initial: XeroSession = {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     accessTokenExpiry: Date.now() + tokens.expires_in * 1000,
@@ -66,65 +76,78 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     name,
     tenantName: "",
     tenants: [],
-  });
+  };
 
-  // 2) Resolve the tenant(s) via /connections (no tenant header needed yet).
-  // KEEP the full organisation list: one token serves every connected org, so
-  // the org switcher (POST /api/xero/tenant) can swap the active tenant
-  // without re-authenticating. The first org starts active.
-  let tenants: { tenantId: string; tenantName: string }[] = [];
+  let resolved: XeroSession;
   try {
-    const res = await xeroFetch("/connections", { base: XERO_API_BASE });
-    if (!res.ok) throw new Error(`connections ${res.status}`);
-    const conns = (await res.json()) as Connection[];
-    tenants = conns
-      .filter((c) => !c.tenantType || c.tenantType === "ORGANISATION")
-      .map((c) => ({ tenantId: c.tenantId, tenantName: c.tenantName }));
-    if (!tenants.length) throw new Error("no connections");
-  } catch {
-    clearSession();
-    return errorRedirect(
-      origin,
-      "no_tenant",
-      "No Xero organisation is connected to this login.",
-    );
-  }
-  setSession({
-    ...getSession()!,
-    tenantId: tenants[0].tenantId,
-    tenantName: tenants[0].tenantName,
-    tenants,
-  });
+    const out = await runWithSession(initial, async () => {
+      // 2) Resolve the tenant(s) via /connections (no tenant header yet). KEEP
+      // the full org list so the switcher can swap without re-auth; first
+      // org starts active.
+      let tenants: Connection[];
+      try {
+        const res = await xeroFetch("/connections", { base: XERO_API_BASE });
+        if (!res.ok) throw new Error(`connections ${res.status}`);
+        const conns = (await res.json()) as Connection[];
+        tenants = conns.filter(
+          (c) => !c.tenantType || c.tenantType === "ORGANISATION",
+        );
+        if (!tenants.length) throw new Error("no connections");
+      } catch {
+        throw new CallbackError(
+          "no_tenant",
+          "No Xero organisation is connected to this login.",
+        );
+      }
+      updateCurrentSession({
+        ...getCurrentSession(),
+        tenantId: tenants[0].tenantId,
+        tenantName: tenants[0].tenantName,
+        tenants: tenants.map((c) => ({
+          tenantId: c.tenantId,
+          tenantName: c.tenantName,
+        })),
+      });
 
-  // 3) Resolve the Projects userId by email-matching /projectsusers.
-  let userId = "";
-  try {
-    const users = await paginate<ProjectsUser>("/projectsusers");
-    const match = users.find((u) => (u.email ?? "").toLowerCase() === email);
-    if (!match) {
-      clearSession();
-      return errorRedirect(
-        origin,
-        "not_projects_user",
-        "This Xero login is not a Projects user in this organisation, so you cannot log time here.",
-      );
+      // 3) Resolve the Projects userId by email-matching /projectsusers.
+      let userId: string;
+      try {
+        const users = await paginate<ProjectsUser>("/projectsusers");
+        const match = users.find(
+          (u) => (u.email ?? "").toLowerCase() === email,
+        );
+        if (!match) {
+          throw new CallbackError(
+            "not_projects_user",
+            "This Xero login is not a Projects user in this organisation, so you cannot log time here.",
+          );
+        }
+        userId = match.userId;
+      } catch (err) {
+        if (err instanceof CallbackError) throw err;
+        throw new CallbackError(
+          "projectsusers_failed",
+          "Could not load Projects users from Xero.",
+        );
+      }
+      updateCurrentSession({ ...getCurrentSession(), userId });
+    });
+    resolved = out.session;
+  } catch (err) {
+    if (err instanceof CallbackError) {
+      return errorRedirect(origin, err.code, err.userMessage);
     }
-    userId = match.userId;
-  } catch {
-    clearSession();
     return errorRedirect(
       origin,
-      "projectsusers_failed",
-      "Could not load Projects users from Xero.",
+      "unexpected",
+      "Sign-in failed unexpectedly. Please try connecting again.",
     );
   }
-  setSession({ ...getSession()!, userId });
 
-  // Success: mint a signed httpOnly session cookie (tokens stay server-side).
-  const sessionId = crypto.randomBytes(24).toString("hex");
-  setSessionId(sessionId);
+  // Success: encrypt the resolved session into the httpOnly cookie (tokens
+  // never reach the client JS) and land home.
   const res = NextResponse.redirect(new URL("/", origin), 302);
-  res.cookies.set(SESSION_COOKIE, signValue(sessionId), cookieOptions);
+  res.cookies.set(SESSION_COOKIE, encryptSession(resolved), cookieOptions);
   return res;
 }
 

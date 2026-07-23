@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
@@ -6,14 +6,13 @@ import { GET as loginGET } from "./login/route";
 import { GET as callbackGET } from "./callback/route";
 import { GET as statusGET } from "./status/route";
 import {
-  clearSession,
   getFreshAccessToken,
-  getSession,
-  setSession,
+  runWithSession,
   type XeroSession,
 } from "@/lib/xero/session";
 import { xeroFetch } from "@/lib/xero/client";
 import {
+  decryptSession,
   SESSION_COOKIE,
   signValue,
   STATE_COOKIE,
@@ -22,9 +21,8 @@ import {
 import { makeIdToken } from "@/test/msw/xero";
 
 // Seam 1: exercise the API route handlers directly, with Xero mocked via MSW.
-// No live OAuth ever runs.
-
-beforeEach(() => clearSession());
+// No live OAuth ever runs. The session now lives in the encrypted cookie, not
+// server memory, so tests read it back by decrypting the response cookie.
 
 function callbackRequest(code: string, state: string, cookieState = state) {
   return new NextRequest(
@@ -87,8 +85,9 @@ describe("GET /api/xero/callback", () => {
     expect(cookie?.value).toBeTruthy();
     expect(cookie?.httpOnly).toBe(true);
 
-    // Tokens + resolved identity live in server memory only.
-    const session = getSession();
+    // Tokens + resolved identity are ENCRYPTED into the cookie (never server
+    // memory, never client JS). Decrypting proves the round-trip.
+    const session = decryptSession(cookie!.value);
     expect(session?.accessToken).toBe("access-initial");
     expect(session?.refreshToken).toBe("refresh-initial");
     expect(session?.tenantId).toBe("tenant-abc");
@@ -96,7 +95,7 @@ describe("GET /api/xero/callback", () => {
     expect(session?.userId).toBe("user-2");
     expect(session?.email).toBe("gavin@evie.digital");
 
-    // /status reads identity back through the signed session cookie.
+    // /status reads identity back through the encrypted session cookie.
     const statusReq = new NextRequest("http://localhost:3000/api/xero/status", {
       headers: { cookie: `${SESSION_COOKIE}=${cookie!.value}` },
     });
@@ -113,7 +112,7 @@ describe("GET /api/xero/callback", () => {
       callbackRequest("auth-code", "state-xyz", "attacker-state"),
     );
     expect(res.headers.get("location")).toContain("auth_error=invalid_state");
-    expect(getSession()).toBeNull();
+    expect(res.cookies.get(SESSION_COOKIE)).toBeUndefined();
   });
 
   it("guards a login with no matching Projects user (no licence) and does NOT log in", async () => {
@@ -133,8 +132,7 @@ describe("GET /api/xero/callback", () => {
     const res = await callbackGET(callbackRequest("auth-code", "state-xyz"));
 
     expect(res.headers.get("location")).toContain("auth_error=not_projects_user");
-    // Session cleared, no session cookie set.
-    expect(getSession()).toBeNull();
+    // No session cookie set (login did not complete).
     expect(res.cookies.get(SESSION_COOKIE)).toBeUndefined();
   });
 });
@@ -171,18 +169,23 @@ describe("token refresh", () => {
       ),
     );
 
-    // Access token already expired ⇒ next use must proactively refresh.
-    setSession(baseSession({ accessTokenExpiry: Date.now() - 1_000 }));
-
-    const tokens = await Promise.all([
-      getFreshAccessToken(),
-      getFreshAccessToken(),
-      getFreshAccessToken(),
-    ]);
+    // Access token already expired ⇒ next use must proactively refresh. The
+    // single-flight is per-request-context, so we run inside runWithSession.
+    const { session, dirty } = await runWithSession(
+      baseSession({ accessTokenExpiry: Date.now() - 1_000 }),
+      async () => {
+        const tokens = await Promise.all([
+          getFreshAccessToken(),
+          getFreshAccessToken(),
+          getFreshAccessToken(),
+        ]);
+        expect(tokens).toEqual(["access-2", "access-2", "access-2"]);
+      },
+    );
 
     expect(refreshCalls).toBe(1); // single-flight: one round-trip for all three
-    expect(tokens).toEqual(["access-2", "access-2", "access-2"]);
-    expect(getSession()?.refreshToken).toBe("refresh-2"); // rotated + persisted
+    expect(session.refreshToken).toBe("refresh-2"); // rotated + persisted
+    expect(dirty).toBe(true); // → the wrapper re-persists the cookie
   });
 
   it("on a 401 refreshes once and retries the request once", async () => {
@@ -213,13 +216,13 @@ describe("token refresh", () => {
       }),
     );
 
-    setSession(baseSession()); // fresh (non-expired) access token
+    const { session } = await runWithSession(baseSession(), async () => {
+      const res = await xeroFetch("/ping"); // fresh token; 401 forces a refresh
+      expect(res.ok).toBe(true);
+    });
 
-    const res = await xeroFetch("/ping");
-
-    expect(res.ok).toBe(true);
     expect(pingHits).toBe(2); // original + one retry
     expect(refreshCalls).toBe(1); // reactive refresh happened once
-    expect(getSession()?.accessToken).toBe("access-2");
+    expect(session.accessToken).toBe("access-2");
   });
 });

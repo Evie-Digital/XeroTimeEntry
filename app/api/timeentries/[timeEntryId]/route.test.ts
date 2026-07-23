@@ -1,25 +1,18 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
 import { PUT as timeentryPUT, DELETE as timeentryDELETE } from "./route";
-import {
-  clearSession,
-  setSession,
-  setSessionId,
-  type XeroSession,
-} from "@/lib/xero/session";
-import { SESSION_COOKIE, signValue } from "@/lib/xero/cookie";
+import { type XeroSession } from "@/lib/xero/session";
+import { SESSION_COOKIE, encryptSession } from "@/lib/xero/cookie";
 
 // Seam 1: drive the PUT/DELETE /api/timeentries/[id] handlers directly, Xero
 // mocked via MSW (test/msw/xero.ts default 204 handlers). No live Xero runs.
 
-const SID = "sid-timeentry-id-test";
 const ID = "te-42";
 const TIME_ID_URL =
   "https://api.xero.com/projects.xro/2.0/Projects/:projectId/Time/:timeEntryId";
 
-beforeEach(() => clearSession());
 
 function baseSession(overrides: Partial<XeroSession> = {}): XeroSession {
   return {
@@ -41,12 +34,10 @@ const ctx = (timeEntryId: string) => ({
 });
 
 function authedPut(id: string, body: unknown): NextRequest {
-  setSession(baseSession());
-  setSessionId(SID);
   return new NextRequest(`http://localhost:3000/api/timeentries/${id}`, {
     method: "PUT",
     headers: {
-      cookie: `${SESSION_COOKIE}=${signValue(SID)}`,
+      cookie: `${SESSION_COOKIE}=${encryptSession(baseSession())}`,
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
@@ -54,13 +45,11 @@ function authedPut(id: string, body: unknown): NextRequest {
 }
 
 function authedDelete(id: string, projectId: string): NextRequest {
-  setSession(baseSession());
-  setSessionId(SID);
   return new NextRequest(
     `http://localhost:3000/api/timeentries/${id}?projectId=${projectId}`,
     {
       method: "DELETE",
-      headers: { cookie: `${SESSION_COOKIE}=${signValue(SID)}` },
+      headers: { cookie: `${SESSION_COOKIE}=${encryptSession(baseSession())}` },
     },
   );
 }

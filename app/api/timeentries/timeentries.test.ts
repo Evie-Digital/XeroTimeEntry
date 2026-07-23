@@ -1,23 +1,16 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
 import { POST as timeentriesPOST } from "./route";
-import {
-  clearSession,
-  setSession,
-  setSessionId,
-  type XeroSession,
-} from "@/lib/xero/session";
-import { SESSION_COOKIE, signValue } from "@/lib/xero/cookie";
+import { type XeroSession } from "@/lib/xero/session";
+import { SESSION_COOKIE, encryptSession } from "@/lib/xero/cookie";
 
 // Seam 1: drive the POST /api/timeentries handler directly, Xero mocked via MSW
 // (test/msw/xero.ts default POST /Projects/:id/Time handler). No live Xero runs.
 
-const SID = "sid-timeentries-test";
 const TIME_URL = "https://api.xero.com/projects.xro/2.0/Projects/:projectId/Time";
 
-beforeEach(() => clearSession());
 
 function baseSession(overrides: Partial<XeroSession> = {}): XeroSession {
   return {
@@ -36,12 +29,10 @@ function baseSession(overrides: Partial<XeroSession> = {}): XeroSession {
 
 /** Authorized POST request with a JSON body + matching signed cookie. */
 function authedPost(body: unknown): NextRequest {
-  setSession(baseSession());
-  setSessionId(SID);
   return new NextRequest("http://localhost:3000/api/timeentries", {
     method: "POST",
     headers: {
-      cookie: `${SESSION_COOKIE}=${signValue(SID)}`,
+      cookie: `${SESSION_COOKIE}=${encryptSession(baseSession())}`,
       "content-type": "application/json",
     },
     body: JSON.stringify(body),

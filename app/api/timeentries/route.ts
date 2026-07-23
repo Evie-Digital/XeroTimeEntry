@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { withErrorEnvelope } from "@/lib/api/errors";
-import { requireSession } from "@/lib/api/session-guard";
+import { withSession } from "@/lib/api/with-session";
 import { createTimeEntry } from "@/lib/xero/timeEntries";
 
 // POST /api/timeentries — create one Xero time entry (ARCHITECTURE §5, §8.B).
@@ -22,9 +21,7 @@ type CreateBody = {
   description?: string;
 };
 
-export const POST = withErrorEnvelope(async (req: NextRequest) => {
-  requireSession(req);
-
+export const POST = withSession(async (req: NextRequest) => {
   const body = (await req.json().catch(() => ({}))) as CreateBody;
   const created = await createTimeEntry({
     projectId: String(body.projectId ?? ""),

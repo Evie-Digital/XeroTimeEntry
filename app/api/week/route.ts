@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { paginate } from "@/lib/xero/client";
 import { mapWithConcurrency } from "@/lib/xero/concurrency";
-import { withErrorEnvelope } from "@/lib/api/errors";
-import { requireSession } from "@/lib/api/session-guard";
+import { withSession } from "@/lib/api/with-session";
+import type { XeroSession } from "@/lib/xero/session";
 import type { WeekEntry } from "@/lib/week/types";
 
 // GET /api/week?from=YYYY-MM-DD&to=YYYY-MM-DD — the composed full-scan week
@@ -35,8 +35,7 @@ type XeroTimeEntry = {
   status: string;
 };
 
-export const GET = withErrorEnvelope(async (req: NextRequest) => {
-  const session = requireSession(req);
+export const GET = withSession(async (req: NextRequest, session: XeroSession) => {
   const { searchParams } = new URL(req.url);
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";

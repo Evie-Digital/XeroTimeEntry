@@ -5,10 +5,9 @@
 // Reused by every later data slice, so the error taxonomy lives here.
 
 import {
+  getCurrentSession,
   getFreshAccessToken,
-  getSession,
   refreshTokens,
-  ReauthRequired,
 } from "./session";
 
 // Base URLs (ARCHITECTURE §4).
@@ -74,7 +73,9 @@ export async function xeroFetch(
   path: string,
   init: XeroFetchInit = {},
 ): Promise<Response> {
-  if (!getSession()) throw new ReauthRequired("no session");
+  // Reads the ambient request session (throws `ReauthRequired` outside a
+  // `runWithSession` scope, i.e. an unauthenticated request).
+  getCurrentSession();
   const { base = PROJECTS_BASE, headers, ...rest } = init;
 
   const call = async (): Promise<Response> => {
@@ -82,7 +83,7 @@ export async function xeroFetch(
     const h = new Headers(headers as HeadersInit | undefined);
     h.set("Authorization", `Bearer ${token}`);
     // /connections has no tenant yet — only send the header once resolved.
-    const tenantId = getSession()?.tenantId;
+    const tenantId = getCurrentSession().tenantId;
     if (tenantId) h.set("Xero-tenant-id", tenantId);
     h.set("Accept", "application/json");
     if (rest.body != null && !h.has("Content-Type")) {

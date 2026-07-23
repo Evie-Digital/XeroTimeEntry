@@ -1,7 +1,6 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { paginate } from "@/lib/xero/client";
-import { withErrorEnvelope } from "@/lib/api/errors";
-import { requireSession } from "@/lib/api/session-guard";
+import { withSession } from "@/lib/api/with-session";
 
 // GET /api/projects → active projects only.
 // Thin proxy over `GET /Projects?states=INPROGRESS`, paginated to pageCount
@@ -9,8 +8,7 @@ import { requireSession } from "@/lib/api/session-guard";
 
 type XeroProject = { projectId: string; name: string; status?: string };
 
-export const GET = withErrorEnvelope(async (req: NextRequest) => {
-  requireSession(req);
+export const GET = withSession(async () => {
   const projects = await paginate<XeroProject>("/Projects", {
     states: "INPROGRESS",
   });

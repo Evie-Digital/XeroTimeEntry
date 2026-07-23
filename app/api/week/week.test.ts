@@ -1,24 +1,17 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
 import { GET as weekGET } from "./route";
-import {
-  clearSession,
-  setSession,
-  setSessionId,
-  type XeroSession,
-} from "@/lib/xero/session";
-import { SESSION_COOKIE, signValue } from "@/lib/xero/cookie";
+import { type XeroSession } from "@/lib/xero/session";
+import { SESSION_COOKIE, encryptSession } from "@/lib/xero/cookie";
 
 // Seam 1: drive the /week route handler directly, Xero mocked via MSW
 // (test/msw/xero.ts default Projects/Tasks/Time handlers). No live Xero runs.
 
-const SID = "sid-week-test";
 const FROM = "2026-07-20";
 const TO = "2026-07-26";
 
-beforeEach(() => clearSession());
 
 function baseSession(overrides: Partial<XeroSession> = {}): XeroSession {
   return {
@@ -37,10 +30,8 @@ function baseSession(overrides: Partial<XeroSession> = {}): XeroSession {
 
 /** Establish an authorized in-memory session + a matching signed cookie. */
 function authed(url: string): NextRequest {
-  setSession(baseSession());
-  setSessionId(SID);
   return new NextRequest(url, {
-    headers: { cookie: `${SESSION_COOKIE}=${signValue(SID)}` },
+    headers: { cookie: `${SESSION_COOKIE}=${encryptSession(baseSession())}` },
   });
 }
 

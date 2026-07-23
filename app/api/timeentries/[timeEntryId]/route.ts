@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { withErrorEnvelope } from "@/lib/api/errors";
-import { requireSession } from "@/lib/api/session-guard";
+import { withSession } from "@/lib/api/with-session";
+import type { XeroSession } from "@/lib/xero/session";
 import { deleteTimeEntry, updateTimeEntry } from "@/lib/xero/timeEntries";
 
 // PUT/DELETE /api/timeentries/{timeEntryId} — edit + delete one Xero time entry
@@ -27,29 +27,31 @@ type PutBody = {
 
 type Ctx = { params: Promise<{ timeEntryId: string }> };
 
-export const PUT = withErrorEnvelope(async (req: NextRequest, ctx: Ctx) => {
-  requireSession(req);
-  const { timeEntryId } = await ctx.params;
+export const PUT = withSession(
+  async (req: NextRequest, _session: XeroSession, ctx: Ctx) => {
+    const { timeEntryId } = await ctx.params;
 
-  const body = (await req.json().catch(() => ({}))) as PutBody;
-  await updateTimeEntry({
-    projectId: String(body.projectId ?? ""),
-    timeEntryId,
-    taskId: String(body.taskId ?? ""),
-    dateUtc: String(body.dateUtc ?? ""),
-    duration: Number(body.duration ?? 0),
-    description: body.description,
-  });
+    const body = (await req.json().catch(() => ({}))) as PutBody;
+    await updateTimeEntry({
+      projectId: String(body.projectId ?? ""),
+      timeEntryId,
+      taskId: String(body.taskId ?? ""),
+      dateUtc: String(body.dateUtc ?? ""),
+      duration: Number(body.duration ?? 0),
+      description: body.description,
+    });
 
-  return new NextResponse(null, { status: 204 });
-});
+    return new NextResponse(null, { status: 204 });
+  },
+);
 
-export const DELETE = withErrorEnvelope(async (req: NextRequest, ctx: Ctx) => {
-  requireSession(req);
-  const { timeEntryId } = await ctx.params;
-  const projectId = new URL(req.url).searchParams.get("projectId") ?? "";
+export const DELETE = withSession(
+  async (req: NextRequest, _session: XeroSession, ctx: Ctx) => {
+    const { timeEntryId } = await ctx.params;
+    const projectId = new URL(req.url).searchParams.get("projectId") ?? "";
 
-  await deleteTimeEntry({ projectId, timeEntryId });
+    await deleteTimeEntry({ projectId, timeEntryId });
 
-  return new NextResponse(null, { status: 204 });
-});
+    return new NextResponse(null, { status: 204 });
+  },
+);

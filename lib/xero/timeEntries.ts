@@ -9,7 +9,7 @@
 // follow the exact same shape (see the trailing note).
 
 import { throwForXeroStatus, xeroFetch } from "./client";
-import { getSession, ReauthRequired } from "./session";
+import { getCurrentSession } from "./session";
 
 /** A new time entry to POST. `dateUtc` is `<localDate>T00:00:00Z` (§2). */
 export type NewTimeEntry = {
@@ -28,8 +28,7 @@ export type NewTimeEntry = {
  * 400→validation, else→upstream).
  */
 export async function createTimeEntry(entry: NewTimeEntry) {
-  const s = getSession();
-  if (!s) throw new ReauthRequired("no session");
+  const s = getCurrentSession();
 
   const res = await xeroFetch(`/Projects/${entry.projectId}/Time`, {
     method: "POST",
@@ -66,8 +65,7 @@ export type UpdateTimeEntry = {
  * else→upstream) for `withErrorEnvelope`.
  */
 export async function updateTimeEntry(entry: UpdateTimeEntry): Promise<void> {
-  const s = getSession();
-  if (!s) throw new ReauthRequired("no session");
+  const s = getCurrentSession();
 
   const res = await xeroFetch(
     `/Projects/${entry.projectId}/Time/${entry.timeEntryId}`,
@@ -96,9 +94,7 @@ export async function deleteTimeEntry(params: {
   projectId: string;
   timeEntryId: string;
 }): Promise<void> {
-  const s = getSession();
-  if (!s) throw new ReauthRequired("no session");
-
+  // No body/userId needed; auth is enforced by `xeroFetch` (ambient session).
   const res = await xeroFetch(
     `/Projects/${params.projectId}/Time/${params.timeEntryId}`,
     { method: "DELETE" },
