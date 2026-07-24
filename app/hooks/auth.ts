@@ -85,3 +85,29 @@ export function useSwitchTenant() {
     onSuccess: () => queryClient.invalidateQueries(),
   });
 }
+
+/** POST the logout, mapping a non-ok response to a plain Error. */
+async function postLogout(): Promise<void> {
+  const res = await fetch("/api/xero/logout", { method: "POST" });
+  if (!res.ok) throw new Error(`logout failed: ${res.status}`);
+}
+
+/**
+ * Sign out: expire the server session cookie, then drop every cached query.
+ * All cached data is tenant/session-scoped, so we `clear()` the whole cache
+ * rather than leave a previous org's projects/week visible, and seed
+ * auth-status to unauthenticated so the UI flips to "Connect Xero" without
+ * waiting on a refetch (the always-on-mount refetch then confirms it).
+ */
+export function useLogout() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: postLogout,
+    onSuccess: () => {
+      queryClient.clear();
+      queryClient.setQueryData<AuthStatusData>(authStatusKey, {
+        authenticated: false,
+      });
+    },
+  });
+}

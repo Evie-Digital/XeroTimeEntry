@@ -5,6 +5,7 @@ import { server } from "@/test/msw/server";
 import { GET as loginGET } from "./login/route";
 import { GET as callbackGET } from "./callback/route";
 import { GET as statusGET } from "./status/route";
+import { POST as logoutPOST } from "./logout/route";
 import {
   getFreshAccessToken,
   runWithSession,
@@ -143,6 +144,33 @@ describe("GET /api/xero/status", () => {
     await expect(statusGET(req).json()).resolves.toEqual({
       authenticated: false,
     });
+  });
+});
+
+describe("POST /api/xero/logout", () => {
+  it("expires the session cookie so a subsequent /status is unauthenticated", async () => {
+    const res = logoutPOST();
+    await expect(res.json()).resolves.toEqual({ ok: true });
+
+    // The cookie is cleared (empty value, immediate expiry).
+    const cookie = res.cookies.get(SESSION_COOKIE)!;
+    expect(cookie.value).toBe("");
+    expect(cookie.maxAge).toBe(0);
+    expect(cookie.httpOnly).toBe(true);
+
+    // An empty session cookie decrypts to nothing → /status is unauthenticated.
+    const statusReq = new NextRequest("http://localhost:3000/api/xero/status", {
+      headers: { cookie: `${SESSION_COOKIE}=${cookie.value}` },
+    });
+    await expect(statusGET(statusReq).json()).resolves.toEqual({
+      authenticated: false,
+    });
+  });
+
+  it("is idempotent — logging out with no session still succeeds", async () => {
+    const res = logoutPOST();
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true });
   });
 });
 

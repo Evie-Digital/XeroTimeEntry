@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuthStatus, useSwitchTenant } from "../hooks/auth";
+import { useAuthStatus, useLogout, useSwitchTenant } from "../hooks/auth";
 
 /**
  * Reads /api/xero/status (via the shared, never-cached `useAuthStatus` hook)
@@ -22,6 +22,7 @@ import { useAuthStatus, useSwitchTenant } from "../hooks/auth";
 export function AuthStatus() {
   const { data, isPending, isError } = useAuthStatus();
   const switchTenant = useSwitchTenant();
+  const logout = useLogout();
 
   // The callback's error message, if we landed here from a failed login.
   const [authError, setAuthError] = useState<string | null>(null);
@@ -107,6 +108,24 @@ export function AuthStatus() {
           {switchTenant.error instanceof Error
             ? switchTenant.error.message
             : "Couldn't switch organisation."}
+        </p>
+      )}
+      <button
+        type="button"
+        data-testid="logout"
+        onClick={() => logout.mutate()}
+        disabled={logout.isPending}
+        className="inline-flex items-center rounded border border-black/15 px-3 py-1 text-sm disabled:opacity-50 dark:border-white/20"
+      >
+        {logout.isPending ? "Logging out…" : "Log out"}
+      </button>
+      {logout.isError && (
+        <p
+          role="alert"
+          data-testid="logout-error"
+          className="text-sm text-red-600 dark:text-red-400"
+        >
+          Couldn&apos;t log out. Please try again.
         </p>
       )}
     </div>
